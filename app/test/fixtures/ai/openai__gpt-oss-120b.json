@@ -1,0 +1,135 @@
+{
+  "source": "real",
+  "note": "npm run ai:probe（wrangler dev の remote AI バインディング）で取得した Workers AI の生の戻り値",
+  "model": "@cf/openai/gpt-oss-120b",
+  "probedAt": "2026-10-19T16:16:49.257Z",
+  "input": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "ROLE: coo_final\nあなたは COO です。JSON オブジェクトを 1 つだけ返してください。前後に文章を書かないでください。"
+      },
+      {
+        "role": "user",
+        "content": "<<<input>>>\n「おはよう」と一言だけ報告して\n<<<end>>>\n出力形式: {\"kind\":\"final\",\"report\":\"...\"}"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "coo_final",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "final"
+              ]
+            },
+            "report": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "report"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "max_completion_tokens": 512
+  },
+  "attempts": [
+    {
+      "withResponseFormat": true,
+      "ok": true,
+      "raw": {
+        "id": "chatcmpl-f28dfe83-2700-4e16-908d-2f80ea38ece4",
+        "object": "chat.completion",
+        "created": 1792426607,
+        "model": "@cf/openai/gpt-oss-120b",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "{\"kind\":\"final\",\"report\":\"おはよう\"}",
+              "refusal": null,
+              "annotations": null,
+              "audio": null,
+              "function_call": null,
+              "reasoning": "The user says: \"「おはよう」と一言だけ報告して\". So they want a JSON object with kind: \"final\", report: \"おはよう\". Must output exactly one JSON object, no extra text. So final channel.",
+              "reasoning_content": "The user says: \"「おはよう」と一言だけ報告して\". So they want a JSON object with kind: \"final\", report: \"おはよう\". Must output exactly one JSON object, no extra text. So final channel."
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null,
+            "token_ids": null,
+            "routed_experts": null
+          }
+        ],
+        "service_tier": null,
+        "usage": {
+          "prompt_tokens": 136,
+          "completion_tokens": 72,
+          "total_tokens": 208,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "neurons": 9.236337661743164
+        },
+        "prompt_logprobs": null,
+        "prompt_token_ids": null,
+        "prompt_text": null,
+        "kv_transfer_params": null,
+        "ec_transfer_params": null,
+        "metrics": null
+      },
+      "ms": 1895
+    }
+  ],
+  "raw": {
+    "id": "chatcmpl-f28dfe83-2700-4e16-908d-2f80ea38ece4",
+    "object": "chat.completion",
+    "created": 1792426607,
+    "model": "@cf/openai/gpt-oss-120b",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"kind\":\"final\",\"report\":\"おはよう\"}",
+          "refusal": null,
+          "annotations": null,
+          "audio": null,
+          "function_call": null,
+          "reasoning": "The user says: \"「おはよう」と一言だけ報告して\". So they want a JSON object with kind: \"final\", report: \"おはよう\". Must output exactly one JSON object, no extra text. So final channel.",
+          "reasoning_content": "The user says: \"「おはよう」と一言だけ報告して\". So they want a JSON object with kind: \"final\", report: \"おはよう\". Must output exactly one JSON object, no extra text. So final channel."
+        },
+        "logprobs": null,
+        "finish_reason": "stop",
+        "stop_reason": null,
+        "token_ids": null,
+        "routed_experts": null
+      }
+    ],
+    "service_tier": null,
+    "usage": {
+      "prompt_tokens": 136,
+      "completion_tokens": 72,
+      "total_tokens": 208,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 9.236337661743164
+    },
+    "prompt_logprobs": null,
+    "prompt_token_ids": null,
+    "prompt_text": null,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "metrics": null
+  }
+}

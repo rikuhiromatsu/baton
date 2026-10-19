@@ -1,12 +1,23 @@
 name: CI
 
+# テストだけを回す（デプロイは Mac mini から。設計書 D-23）。
+# Cloudflare の認証情報は使わない: AI は ScriptedAiClient、D1・DO はローカル（workerd）。
+
 on:
   push:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  check:
+    name: 型検査・ユニット・Workers 統合
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -16,6 +27,62 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run test:unit
-      - run: npm run test:worker -w app
+      - name: 型検査
+        run: npm run typecheck
+      - name: ユニット（shared・web・runner）
+        run: npm run test:unit
+      - name: Workers 統合（workerd + D1 + DO）
+        run: npm run test:worker -w app
+
+  e2e:
+    name: E2E (${{ matrix.project }})
+    runs-on: macos-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: desktop-chromium
+            browser: chromium
+          - project: iphone-chromium
+            browser: chromium
+          - project: iphone-webkit
+            browser: webkit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+
+      - name: Playwright のブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
+      - name: Playwright のブラウザを入れる
+        run: npx playwright install ${{ matrix.browser }}
+
+      - name: e2e 用の秘密（ダミー値）
+        run: cp app/.dev.vars.e2e.example app/.dev.vars.e2e
+
+      # webServer（app の e2e:serve: e2e ビルド → ローカル D1 のマイグレーション → 8790 番）と
+      # ランナー（globalSetup が子プロセスで起動）は Playwright が立ち上げる
+      - name: E2E
+        run: npm test -w e2e -- --project=${{ matrix.project }}
+
+      - name: ランナーのログをレポートと一緒に置く
+        if: failure()
+        run: |
+          mkdir -p e2e/test-results
+          cp e2e/.auth/runner.log e2e/test-results/runner.log 2>/dev/null || true
+      - name: 失敗時のレポートを保存
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 14

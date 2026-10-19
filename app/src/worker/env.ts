@@ -1,9 +1,10 @@
 // Worker のバインディングと変数（設計書 9.3・9.6）
 import type { BatonEnv } from "@baton/shared";
+import type { BatonHub } from "./hub/batonhub.ts";
 
 export type Env = {
   DB: D1Database;
-  HUB: DurableObjectNamespace;
+  HUB: DurableObjectNamespace<BatonHub>;
   /** e2e 環境には無い（ScriptedAiClient を使う） */
   AI?: Ai;
   ASSETS?: Fetcher;
