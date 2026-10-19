@@ -1,0 +1,59 @@
+/* ガラス面（設計書 7.8 の GlassSurface） */
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-md);
+  isolation: isolate;
+}
+/* 光のふち: グラデーションの枠を mask で 1px だけ残す */
+.glass::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  pointer-events: none;
+}
+/* 上からの照り返し */
+.glass::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--glass-sheen); pointer-events: none; z-index: -1;
+}
+
+.glass--bar {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--glass-highlight), var(--shadow-lg);
+}
+.glass--card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+}
+.glass--sheet {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--glass-highlight), var(--shadow-lg);
+}
+/* シートは開ききるまで blur を半分に（7.7） */
+.glass--sheet[data-settled="false"] {
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur-strong) / 2)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(calc(var(--glass-blur-strong) / 2)) saturate(var(--glass-saturate));
+}
+.glass--chip {
+  background: var(--glass-bg-subtle);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: var(--glass-fallback-bg); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass { background: var(--glass-fallback-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
