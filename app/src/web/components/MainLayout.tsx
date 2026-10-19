@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { COO_THREAD_ID, TESTIDS, UI_TEXT_V2, type ListThreadsOutput } from "@baton/shared";
 import { interruptSession, interruptThread, totalUnread } from "../api/messages.ts";
 import { qk } from "../api/keys.ts";
-import { useQuota, useSession, useSidebar, useThreads } from "../api/queries.ts";
+import { useMessages, useQuota, useSession, useSidebar, useThreads } from "../api/queries.ts";
 import { dismissBootSkeleton } from "../lib/boot.ts";
 import { useBreakpoint } from "../lib/media.ts";
 import { setAppBadge } from "../lib/push.ts";
@@ -115,9 +115,16 @@ export function MainLayout() {
   }, [pathname, route]);
 
   // 起動直後のスケルトン（index.html）を外す
-  const ready = threads.data !== undefined || route.kind === "settings" || route.kind === "org" || route.kind === "archive";
+  // COO の会話は発言がそろうまで全画面スケルトンのまま（13.12。E3）。取得に失敗したら外して画面のエラー表示に任せる
+  const cooMessages = useMessages(qc, route.kind === "coo" ? COO_THREAD_ID : null);
+  const ready =
+    route.kind === "settings" ||
+    route.kind === "org" ||
+    route.kind === "archive" ||
+    threads.isError ||
+    (threads.data !== undefined && (route.kind !== "coo" || cooMessages.data !== undefined || cooMessages.isError));
   useEffect(() => {
-    dismissBootSkeleton({ immediate: !ready });
+    if (ready) dismissBootSkeleton();
   }, [ready]);
 
   // 選んでいたプロジェクトは localStorage にも（D-70）

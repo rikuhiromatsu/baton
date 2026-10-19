@@ -44,7 +44,8 @@ test("E44 3 通りの入口からリーダーのスレッドへ降り、COO に�
 
   // ② サイドパネルのプロジェクトの吹き出し（モバイルはドロワー）
   const sidebar = await openSidebar(page, testInfo);
-  await press(sidebarItem(sidebar, projectId).locator(`[data-testid="${TESTIDS.sidebarLeaderLink}"]`), testInfo);
+  // 吹き出しはプロジェクトの行（リンク）の右隣にある別のリンク（a の入れ子はできない）。行の入れ物の中で探す
+  await press(sidebarItem(sidebar, projectId).locator("xpath=..").locator(`[data-testid="${TESTIDS.sidebarLeaderLink}"]`), testInfo);
   await expectInLeaderThread(page, projectId);
   // モバイルは左端スワイプで戻る（リーダーのスレッドでは左端スワイプは「COO に戻る」。13.3）
   await backToCoo(page, testInfo, isTouchProject(testInfo) ? "edge" : "button");

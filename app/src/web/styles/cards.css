@@ -93,8 +93,9 @@
 .card:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent), var(--glass-highlight), var(--shadow-sm);
 }
+/* ふちは判断の色そのまま（13.8 の紫のふち。color-mix だと計算後の色が判断の色として読めない） */
 .card[data-group="needs_decision"] {
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-decision) 55%, transparent), 0 8px 28px color-mix(in srgb, var(--accent-decision) 16%, transparent), var(--glass-highlight);
+  box-shadow: 0 0 0 1.5px var(--accent-decision), 0 8px 28px color-mix(in srgb, var(--accent-decision) 16%, transparent), var(--glass-highlight);
 }
 .card[data-group="review"] {
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent), 0 8px 28px color-mix(in srgb, var(--accent) 12%, transparent), var(--glass-highlight);

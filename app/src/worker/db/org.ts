@@ -58,6 +58,7 @@ type OrgData = {
   threads: ThreadSummary[];
   sessions: LiveSessionRow[];
   lastActiveByAgent: Map<string, number>;
+  lastWorkByAgent: Map<string, { sessionId: string; instructionId: string }>;
   agentsWithDecision: Set<string>;
   lastActivityByProject: Map<string, number>;
   approvals: number;
@@ -66,7 +67,7 @@ type OrgData = {
 
 async function loadOrgData(db: D1Database, userId: string | null, now: number): Promise<OrgData> {
   const [projects, threads] = await Promise.all([listProjects(db, { activeOnly: true }), listThreadSummaries(db, userId)]);
-  const [countRows, sessions, lastActive, decisionAgents, lastActivity, approvals, coo] = await db.batch([
+  const [countRows, sessions, lastActive, decisionAgents, lastActivity, approvals, coo, lastWork] = await db.batch([
     db.prepare(COUNT_SELECT),
     db.prepare(
       `SELECT s.id, s.agent_id, s.instruction_id, s.thread_id, s.project_id, s.status, s.title, s.activity, s.started_at, s.created_at, s.updated_at,
@@ -84,7 +85,18 @@ async function loadOrgData(db: D1Database, userId: string | null, now: number): 
     ),
     db.prepare("SELECT count(*) AS n FROM decisions WHERE status = 'open' AND kind = 'approval'"),
     db.prepare("SELECT * FROM agents WHERE role = 'coo' LIMIT 1"),
+    db.prepare(
+      // SQLite の max() の集計では、ほかの列はその最大の行の値になる（エージェントごとに直近の 1 行）
+      `SELECT s.agent_id, s.id AS session_id, s.instruction_id, max(s.updated_at) AS at
+         FROM agent_sessions s
+        WHERE s.agent_id IS NOT NULL AND s.instruction_id IS NOT NULL AND s.role <> 'legacy'
+        GROUP BY s.agent_id`,
+    ),
   ]);
+  const lastWorkByAgent = new Map<string, { sessionId: string; instructionId: string }>();
+  for (const r of (lastWork?.results ?? []) as { agent_id: string; session_id: string; instruction_id: string }[]) {
+    if (!lastWorkByAgent.has(r.agent_id)) lastWorkByAgent.set(r.agent_id, { sessionId: r.session_id, instructionId: r.instruction_id });
+  }
   const byProject = new Map<string, CountRow[]>();
   for (const r of (countRows?.results ?? []) as CountRow[]) {
     if (!r.project_id) continue;
@@ -97,6 +109,7 @@ async function loadOrgData(db: D1Database, userId: string | null, now: number): 
     counts,
     threads,
     sessions: (sessions?.results ?? []) as LiveSessionRow[],
+    lastWorkByAgent,
     lastActiveByAgent: new Map(((lastActive?.results ?? []) as { agent_id: string; at: number }[]).map((r) => [r.agent_id, r.at])),
     agentsWithDecision: new Set(((decisionAgents?.results ?? []) as { agent_id: string }[]).map((r) => r.agent_id)),
     lastActivityByProject: new Map(((lastActivity?.results ?? []) as { project_id: string; at: number }[]).map((r) => [r.project_id, r.at])),
@@ -120,7 +133,14 @@ function agentLive(agent: Agent, data: OrgData, thread: ThreadSummary | null): A
     activity: s.activity,
     since: s.started_at ?? s.created_at,
   }));
-  return { agent, state, threadId: thread?.id ?? null, work, lastActiveAt: data.lastActiveByAgent.get(agent.id) ?? null };
+  return {
+    agent,
+    state,
+    threadId: thread?.id ?? null,
+    work,
+    lastActiveAt: data.lastActiveByAgent.get(agent.id) ?? null,
+    lastWork: data.lastWorkByAgent.get(agent.id) ?? null,
+  };
 }
 
 function leaderThreadOf(data: OrgData, projectId: string): ThreadSummary | null {

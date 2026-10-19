@@ -390,6 +390,8 @@ export function OrgScreen() {
     const work = m.work.filter((w) => w.instructionId);
     if (work.length === 1) void navigate({ to: "/i/$id", params: { id: work[0]!.instructionId! }, search: { s: work[0]!.sessionId } });
     else if (work.length > 1) setWorkPicker(m);
+    // 手すきなら直近のセッションの詳細へ（13.9）。一度も働いていなければエージェントのシート
+    else if (m.lastWork) void navigate({ to: "/i/$id", params: { id: m.lastWork.instructionId }, search: { s: m.lastWork.sessionId } });
     else setAgentSheet(m);
   };
 

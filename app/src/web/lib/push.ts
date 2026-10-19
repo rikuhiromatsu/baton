@@ -15,7 +15,10 @@ export type PushDriver = {
   unsubscribe: () => Promise<void>;
 };
 
-export function isIos(nav: Pick<Navigator, "userAgent" | "platform" | "maxTouchPoints"> = navigator): boolean {
+export function isIos(nav: Pick<Navigator, "userAgent" | "platform" | "maxTouchPoints"> & { userAgentData?: unknown } = navigator): boolean {
+  // iOS のブラウザはすべて WebKit で、User-Agent Client Hints（Chromium だけ）を持たない。
+  // iPhone を名乗る Chromium（開発者ツールや E2E の端末の再現）は iOS の Safari のタブとして扱わない
+  if ((nav as { userAgentData?: unknown }).userAgentData) return false;
   const ua = nav.userAgent || "";
   if (/iPhone|iPad|iPod/.test(ua)) return true;
   // iPadOS は Mac と名乗る

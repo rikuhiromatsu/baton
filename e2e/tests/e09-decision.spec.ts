@@ -58,6 +58,10 @@ test("E9 承認待ちの指示は判断待ちのまとまりに出て、シー�
     `判断 ${decision.id}（またはその時間切れの後継）が許可で答えられる`,
     15_000,
   );
-  await expect(card).toHaveAttribute("data-status", "review", { timeout: RUNNER_TIMEOUT });
-  await api.waitForStatus(created.id, "review", 10_000);
+  // v2 の判断シートは指示の詳細（≥ 1280px は会話の場所に出て補助列がカードの列に代わる、モバイルは全画面シート。13.7）。
+  // カードの列は隠れるので、確認になったことは会話に戻ってカードで見る
+  await api.waitForStatus(created.id, "review", RUNNER_TIMEOUT);
+  await page.goto("/");
+  const after = await cardInPanel(page, testInfo, created.id);
+  await expect(after).toHaveAttribute("data-status", "review");
 });

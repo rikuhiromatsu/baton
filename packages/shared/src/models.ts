@@ -518,6 +518,8 @@ export const AgentLiveSchema = z.object({
     }),
   ),
   lastActiveAt: z.number().nullable(),
+  /** いま動いていないときに、ノードから開く直近のセッション（13.9 の「メンバー → そのセッションの詳細」） */
+  lastWork: z.object({ sessionId: z.string(), instructionId: z.string() }).nullable().optional(),
 });
 export type AgentLive = z.infer<typeof AgentLiveSchema>;
 
