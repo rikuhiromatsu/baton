@@ -124,7 +124,12 @@ instructionRoutes.post("/:id/transition", async (c) => {
   stmts.push(transitionAfterUpdate(db, { id: transitionId, instructionId: id, from: inst.status, to, action: input.action, actor: "ceo", now }));
   // 取消では未回答の判断も閉じる（再開したら必要なら聞き直す）
   if (input.action === "cancel") {
-    stmts.push(db.prepare("UPDATE decisions SET status = 'canceled' WHERE instruction_id = ? AND status = 'open'").bind(id));
+    // 遷移が記録されたとき（＝取消が当たったとき）だけ閉じる
+    stmts.push(
+      db
+        .prepare("UPDATE decisions SET status = 'canceled' WHERE instruction_id = ? AND status = 'open' AND EXISTS (SELECT 1 FROM status_transitions WHERE id = ?)")
+        .bind(id, transitionId),
+    );
   }
   const results = await db.batch(stmts);
   if (results[0]?.meta.changes !== 1) throw conflict("status changed");

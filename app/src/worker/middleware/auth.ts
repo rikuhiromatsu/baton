@@ -96,6 +96,8 @@ export async function readSession(c: Context<AppEnv>): Promise<{ session: Sessio
     await c.env.DB.prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id_hash = ?")
       .bind(now, session.expires_at, session.id_hash)
       .run();
+    // Cookie の Max-Age も延ばす（ブラウザ側で先に消えないように）
+    setSessionCookie(c, token);
   }
   return { session, user };
 }

@@ -250,6 +250,7 @@ describe("W5 未ログインは 401", () => {
     await env.DB.prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE user_id = ?").bind(old, Date.now() + 1000, s.userId).run();
     const res = await browser(s, "/api/session");
     expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie().join("\n")).toMatch(/baton_session=.*Max-Age=2592000/);
     const row = await env.DB.prepare("SELECT expires_at FROM sessions WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1").bind(s.userId).first<{ expires_at: number }>();
     expect(row!.expires_at).toBeGreaterThan(Date.now() + 29 * 24 * 3600_000);
   });
