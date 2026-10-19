@@ -4,7 +4,9 @@
   "private": true,
   "description": "テスト用の偽 claude（DESIGN-v2 15.2）。本物の stream-json と同じ形を台本どおりに出す。中身は V5 が作る",
   "type": "module",
-  "bin": { "claude": "bin/claude" },
+  "bin": {
+    "fake-claude": "bin/claude"
+  },
   "scripts": {
     "test": "vitest run --passWithNoTests"
   },
