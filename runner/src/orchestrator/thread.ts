@@ -228,7 +228,7 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
     const input =
       attempt === 0
         ? text
-        : buildTurnInput([{ tag: TURN_TAGS.runner, text: `直前の出力がスキーマに合わなかった（${clip(parsed && !parsed.ok ? parsed.error : (outcome?.result?.subtype ?? "失敗"), 400)}）。もう一度、返事の文章と StructuredOutput を出して。` }]);
+        : `${buildTurnInput([{ tag: TURN_TAGS.runner, text: `直前の出力がスキーマに合わなかった（${clip(parsed && !parsed.ok ? parsed.error : (outcome?.result?.subtype ?? "失敗"), 400)}）。次の入力にもう一度、返事の文章と StructuredOutput で答えて。` }])}\n${text}`;
     if (attempt > 0) stream.reset();
     outcome = await session.turn(input, { author: hasCeo && attempt === 0 ? "ceo" : "runner", stream, signal, instructionId: turnInstructionId });
 

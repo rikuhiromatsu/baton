@@ -5,7 +5,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLocalServer, listenLocal } from "../src/local-server.ts";
 import { LiveLog, silentLogger } from "../src/log.ts";
-import { tempDir, testConfig } from "./helpers.ts";
+import type { Workspace } from "@baton/shared";
+import { git, tempDir, testConfig } from "./helpers.ts";
+
+const workspaces = new Map<string, Workspace>();
 
 const LOGIN = "riku@example.com";
 
@@ -37,14 +40,24 @@ describe("R11 tailnet 向けのローカル HTTP", () => {
   let dir: string;
 
   const start = async (env: Record<string, string> = {}) => {
-    const config = testConfig(dir, {}, { ALLOWED_TAILNET_LOGINS: LOGIN, ...env });
+    const config = testConfig(dir, { ALLOWED_TAILNET_LOGINS: LOGIN, ...env });
     liveLog = new LiveLog();
     server = createLocalServer({
       config,
       liveLog,
       log: silentLogger,
-      stats: { lastAiError: { at: 1, instructionId: "i", message: "503" } },
-      status: () => ({ activeInstructionIds: ["abc"], maxConcurrent: 2, lastHeartbeatAt: 5, hubConnected: true }),
+      status: () => ({
+        activeInstructionIds: ["abc"],
+        activeThreadIds: [],
+        activeSessionIds: ["s1"],
+        lastHeartbeatAt: 5,
+        hubConnected: true,
+        claudeAuth: "ok",
+        claudeVersion: "2.1.303",
+        quota: null,
+        authStop: null,
+      }),
+      workspace: (id) => workspaces.get(id),
     });
     port = await listenLocal(server, 0);
   };
@@ -79,7 +92,7 @@ describe("R11 tailnet 向けのローカル HTTP", () => {
     const ok = await get(port, "/status", { "tailscale-user-login": LOGIN.toUpperCase() });
     expect(ok.status).toBe(200);
     const s = JSON.parse(ok.body);
-    expect(s).toMatchObject({ name: "test-runner", activeInstructionIds: ["abc"], maxConcurrent: 2, lastAiError: { message: "503" } });
+    expect(s).toMatchObject({ name: "test-runner", activeInstructionIds: ["abc"], activeSessionIds: ["s1"], claudeAuth: "ok", claudeVersion: "2.1.303" });
     expect(typeof s.uptimeMs).toBe("number");
   });
 
@@ -153,5 +166,27 @@ describe("R11 tailnet 向けのローカル HTTP", () => {
     expect(r.status).toBe(200);
     expect(r.headers["content-type"]).toMatch(/^text\/event-stream/);
     expect(r.body).toMatch(/^data: .*前のログ/);
+  });
+
+  it("/sessions/:id/stream も同じ SSE、/diff/:workspaceId はタスク用ブランチの差分", async () => {
+    await start();
+    liveLog.append("sess-1", "item", { summary: "読んだ a.md" });
+    const r = await get(port, "/sessions/sess-1/stream", { "tailscale-user-login": LOGIN });
+    expect(r.body).toContain("読んだ a.md");
+    const repo = path.join(dir, "repo");
+    await mkdir(repo);
+    git(repo, "init", "-q", "-b", "main");
+    await writeFile(path.join(repo, "a.md"), "1\n");
+    git(repo, "add", "-A");
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "1");
+    const base = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-qb", "baton/x/t1-r1");
+    await writeFile(path.join(repo, "a.md"), "2\n");
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "2");
+    workspaces.set("ws-1", { id: "ws-1", repoPath: repo, branch: "baton/x/t1-r1", baseSha: base } as Workspace);
+    const d = await get(port, "/diff/ws-1", { "tailscale-user-login": LOGIN });
+    expect(d.status).toBe(200);
+    expect(d.body).toContain("+2");
+    expect((await get(port, "/diff/nope", { "tailscale-user-login": LOGIN })).status).toBe(404);
   });
 });

@@ -206,7 +206,7 @@ async function runUnits(run: Run): Promise<"ok" | "released"> {
     return "released";
   }
   if (anyPaused) {
-    const stillRunning = [...run.tasks.values()].some((t) => t.status === "running" || t.status === "pending");
+    const stillRunning = [...run.tasks.values()].some((t) => (t.status === "running" || t.status === "pending") && !pausedForDecision.has(t.id));
     const pausedForCeo = await hasOpenCeoDecision(run);
     if (pausedForCeo && !stillRunning) {
       // 承認の時間切れ・中断で止まり、他に動いているものが無い（4.4）

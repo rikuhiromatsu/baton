@@ -41,7 +41,11 @@ export class QuotaGate {
 
   /** result の本文が枠切れの文だった */
   limitHit(): void {
-    this.set(applyQuotaObservation(this.status, { status: "rejected", limitHit: true }, this.now()));
+    // rate_limit_event で戻る時刻が分かっていればそれを使う（無ければ 30 分後。9.2）
+    const known = this.status.blockedUntil;
+    const next = applyQuotaObservation(this.status, { status: "rejected", limitHit: true }, this.now());
+    if (known !== null && known > this.now()) next.blockedUntil = known;
+    this.set(next);
   }
 
   private set(next: QuotaStatus): void {
@@ -51,10 +55,17 @@ export class QuotaGate {
 
   /** 期限を過ぎたら blockedUntil を外す（claim の前に呼ぶ） */
   refresh(): QuotaStatus {
-    const q = this.status;
-    if (q.blockedUntil !== null && this.now() >= q.blockedUntil) {
-      this.set({ ...q, blockedUntil: null, status: q.status === "rejected" ? "unknown" : q.status, rejectedType: null, paused: isOverThreshold(q) });
+    const now = this.now();
+    let q = this.status;
+    let changed = false;
+    // 戻る時刻を過ぎた枠の利用率は古いので捨てる（次の rate_limit_event で入り直す）
+    const fresh = (w: QuotaStatus["fiveHour"]) => (w.resetsAt !== null && now >= w.resetsAt ? ((changed = true), { utilization: null, resetsAt: null }) : w);
+    q = { ...q, fiveHour: fresh(q.fiveHour), sevenDay: fresh(q.sevenDay) };
+    if (q.blockedUntil !== null && now >= q.blockedUntil) {
+      q = { ...q, blockedUntil: null, status: q.status === "rejected" ? "unknown" : q.status, rejectedType: null };
+      changed = true;
     }
+    if (changed) this.set({ ...q, paused: q.blockedUntil !== null || isOverThreshold(q) });
     return this.status;
   }
 
