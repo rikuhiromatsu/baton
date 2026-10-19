@@ -14,6 +14,8 @@ export const ROLE_TOOLS: Record<ClaudeRole, readonly string[]> = {
 /** --allowedTools（2 層目: 安全な操作は自動で許可）。メンバーは worktree の Edit をあとで足す */
 export const ROLE_ALLOW: Record<ClaudeRole, readonly string[]> = {
   coo: ["Read", "Grep", "Glob", "WebFetch", "WebSearch"],
+  // リーダーの cwd（<DATA>/leaders/<slug>）は git ではないので、worktree を見る「cd <dir> && git …」「git -C <dir> …」は
+  // ルールに当たらず承認に来る（実物で確認）。読み取りの git だけ、ランナーの方針（approval.ts）で許可する
   leader: ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite", "Bash(git log *)", "Bash(git diff *)", "Bash(git show *)", "Bash(git status *)"],
   member: [
     "Read",

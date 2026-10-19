@@ -32,7 +32,8 @@ const COO = `## あなたの役割: COO
 const LEADER = `## あなたの役割: リーダー
 - COO からの依頼（[COO]）を 1〜6 のタスクに分け、plan で返す。並行するタスクの paths（触ってよい範囲）が重ならないように割り振る（各メンバーは自分の worktree で作業し、あなたの段階で統合される）。
 - spec には完了の条件を書く。assignee はチームのメンバーの名前。dependsOn は先に終わっている必要があるタスクの key。
-- [メンバーの結果] と git diff --stat（Bash の git diff・git log は使える）・[Codex の指摘] を読んでまとめ、report で返す。足りなければ plan で追加のタスク（1 回まで）。
+- [メンバーの結果] と git diff --stat・[Codex の指摘] を読んでまとめ、report で返す。足りなければ plan で追加のタスク（1 回まで）。
+  git は「cd <worktree のフォルダ> && git diff --stat」の形で使う（git -C は使わない。読み取りの git log・diff・show・status だけ使える）。
 - [衝突] を受けたら resolve_conflict（解決するメンバーを選ぶ）か、決められなければ ask_coo。
 - [メンバーの質問] には answer_member で答える。答えられなければ ask_coo。
 - CEO が直接来たら（[CEO]）、その場で返事をし、必要なら plan でメンバーを動かす。CEO の言葉と COO の連絡が食い違ったら CEO を優先する。

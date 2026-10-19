@@ -201,7 +201,7 @@ export class AgentSession {
 
   private async handlePermission(requestId: string, toolName: string, toolInput: Record<string, unknown>, toolUseId: string | null): Promise<void> {
     const { config } = this.ctx;
-    const verdict = decidePermission({ role: this.opts.role, toolName, toolInput, cwd: this.opts.cwd, home: config.home, dataDir: config.dataDir });
+    const verdict = decidePermission({ role: this.opts.role, toolName, toolInput, cwd: this.opts.cwd, home: config.home, dataDir: config.dataDir, readRoots: this.opts.addDirs });
     if (verdict.kind === "allow") {
       this.proc?.respond(requestId, { behavior: "allow", updatedInput: toolInput });
       return;

@@ -34,6 +34,20 @@ describe("R2' 承認", () => {
     expect(decidePermission({ ...base, role: "leader", toolName: "Bash", toolInput: { command: "npm install zod" } }).kind).toBe("deny");
     expect(decidePermission({ ...base, role: "member", toolName: "mcp__x", toolInput: {} }).kind).toBe("deny");
     expect(oneTimeRule("Bash", { command: "npm install zod" })).toBe("Bash(npm install zod)");
+    // リーダーの読み取りの git（cwd が git ではないので cd / -C が要る。worktrees と本体の中だけ）
+    const leader = { ...base, role: "leader" as const, cwd: "/d/leaders/p", readRoots: ["/Users/r/projects/app"] };
+    expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: "cd /d/worktrees/x/p/integration && git diff --stat" } }).kind).toBe("allow");
+    expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: "git -C /Users/r/projects/app log --oneline -5" } }).kind).toBe("allow");
+    for (const bad of [
+      "cd /d/worktrees/x && git push",
+      "cd /etc && git log",
+      "cd /d/worktrees/x && git log && rm -rf /",
+      "cd /d/worktrees/x && git log & rm x",
+      "git -C /d/worktrees/x diff --output=/tmp/a",
+      "git -C /d/worktrees/x log; curl x",
+      "git -C /d/worktrees/x -c core.pager=sh log",
+      "cd relative && git log",
+    ]) expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: bad } }).kind, bad).toBe("deny");
     expect(oneTimeRule("Write", { file_path: "/a/b.md" })).toBe("Edit(//a/b.md)");
   });
 
