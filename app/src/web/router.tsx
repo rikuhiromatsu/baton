@@ -8,12 +8,13 @@ import { Login } from "./screens/Login.tsx";
 import { Projects } from "./screens/Projects.tsx";
 
 type RouterContext = { queryClient: QueryClient };
-type RootSearch = { mock?: string };
+type RootSearch = { mock?: number };
 type LoginSearch = { redirect?: string; e?: string };
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: AppShell,
-  validateSearch: (s: Record<string, unknown>): RootSearch => (s.mock !== undefined ? { mock: String(s.mock) } : {}),
+  // 数値で持つ（文字列だと ?mock=%221%22 のように引用符付きで書き出されるため）
+  validateSearch: (s: Record<string, unknown>): RootSearch => (Number(s.mock) === 1 ? { mock: 1 } : {}),
   // ?mock=1 を画面遷移のあとも残す（再読み込みしてもモックのまま）
   search: { middlewares: [retainSearchParams<RootSearch>(["mock"])] },
 });

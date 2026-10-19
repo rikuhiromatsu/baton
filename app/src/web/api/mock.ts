@@ -43,6 +43,8 @@ export type MockOptions = {
   speed?: number;
   /** 種データを入れない */
   empty?: boolean;
+  /** 一覧の応答を遅らせる（スケルトンの確認用。ミリ秒） */
+  listDelayMs?: number;
   now?: () => number;
 };
 
@@ -74,11 +76,13 @@ export class MockBackend {
   private timers = new Map<string, ReturnType<typeof setTimeout>[]>();
   private globalTimers: ReturnType<typeof setTimeout>[] = [];
   private readonly speed: number;
+  private readonly listDelayMs: number;
   private readonly now: () => number;
 
   constructor(opts: MockOptions = {}) {
     this.loggedIn = !opts.loggedOut;
     this.speed = opts.speed ?? 1;
+    this.listDelayMs = opts.listDelayMs ?? 0;
     this.now = opts.now ?? (() => Date.now());
     const now = this.now();
     this.runner = {
@@ -682,6 +686,7 @@ export class MockBackend {
       return json(200, s);
     }
     if (path === API_PATHS.instructions && method === "GET") {
+      if (this.listDelayMs > 0) await new Promise((r) => setTimeout(r, this.listDelayMs));
       const view = url.searchParams.get("view") === "archived" ? "archived" : "active";
       const items = [...this.recs.values()]
         .map((r) => r.summary)

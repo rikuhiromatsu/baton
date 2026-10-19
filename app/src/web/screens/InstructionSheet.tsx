@@ -115,7 +115,7 @@ export function InstructionSheet({ id, onClose }: Props) {
         onLayoutAnimationComplete={() => setSettled(true)}
         onAnimationComplete={() => setSettled(true)}
       >
-        <div className="sheet__grab" onPointerDown={(e) => drag.start(e)}>
+        <motion.div className="sheet__grab" onPointerDown={(e) => drag.start(e)} exit={{ opacity: 0, transition: { duration: 0.1 } }}>
           <span className="sheet__handle" aria-hidden="true" />
           <div className="sheet__toolbar">
             {status && (
@@ -136,8 +136,13 @@ export function InstructionSheet({ id, onClose }: Props) {
               <IconX size={18} />
             </button>
           </div>
-        </div>
-        <motion.div className="sheet__scroll" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: layoutKey ? 0.12 : 0 }}>
+        </motion.div>
+        <motion.div
+          className="sheet__scroll"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: { duration: 0.2, delay: layoutKey ? 0.12 : 0 } }}
+          exit={{ opacity: 0, transition: { duration: 0.1 } }}
+        >
           {summary ? (
             <header className="sheet__header">
               <h2 className="sheet__title">{cardTitle(summary)}</h2>

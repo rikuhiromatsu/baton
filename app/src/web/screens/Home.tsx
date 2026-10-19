@@ -39,7 +39,13 @@ export function Home() {
 
   // 一覧の空白をタップしたら入力欄へ（iOS は pointerup の中で同期的に focus。7.4）
   const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest(INTERACTIVE)) {
+      down.current = null;
+      return;
+    }
     down.current = { x: e.clientX, y: e.clientY };
+    // 後から来る互換の mousedown でフォーカスが外れないように（スクロールは touch-action が決めるので止まらない）
+    if (e.pointerType !== "mouse") e.preventDefault();
   };
   const onPointerUp = (e: React.PointerEvent) => {
     const d = down.current;

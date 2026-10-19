@@ -1,4 +1,5 @@
 // 起動（7.4）。?mock=1 のときだけモックを動的に読み込む
+import "./lib/zod-config.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, createQueryClient } from "./App.tsx";
@@ -19,7 +20,11 @@ async function boot() {
   setMockMode(mock);
   if (mock) {
     const { MockBackend, mockRawLog } = await import("./api/mock.ts");
-    const backend = new MockBackend({ loggedOut: params.get("auth") === "0" });
+    const backend = new MockBackend({
+      loggedOut: params.get("auth") === "0",
+      empty: params.get("empty") === "1",
+      listDelayMs: Number(params.get("listDelay") ?? 0) || 0,
+    });
     setTransport(backend.fetch);
     setSocketFactory(backend.createSocket);
     setTailnetDriver({ fetch: async () => new Response("{}", { status: 200 }), openRawLog: mockRawLog });

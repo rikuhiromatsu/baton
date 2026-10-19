@@ -236,6 +236,7 @@ button:disabled {
 /* ───────────── メニュー ───────────── */
 
 .menu {
+  background: rgba(255, 255, 255, 0.86);
   position: absolute;
   top: calc(100% + 10px);
   right: 0;
@@ -556,6 +557,10 @@ button:disabled {
   justify-content: center;
   pointer-events: none;
 }
+/* キーボードが出ている間は safe-area の余白を外して、キーボードのすぐ上に置く */
+.composer-wrap[data-keyboard="open"] {
+  bottom: 8px;
+}
 .composer {
   pointer-events: auto;
   width: 100%;
@@ -706,6 +711,8 @@ button:disabled {
   backdrop-filter: blur(4px);
 }
 .sheet {
+  /* 一覧の上に重なる面は、blur が効かない環境でも読めるよう濃いめにする */
+  background: rgba(255, 255, 255, 0.88);
   position: absolute;
   left: 0;
   right: 0;
@@ -1181,6 +1188,7 @@ button:disabled {
   backdrop-filter: blur(4px);
 }
 .mini-sheet {
+  background: rgba(255, 255, 255, 0.88);
   position: absolute;
   left: 12px;
   right: 12px;

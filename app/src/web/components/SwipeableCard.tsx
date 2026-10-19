@@ -47,7 +47,22 @@ type Gesture = {
   longPressFired: boolean;
   lastDx: number;
   lastDy: number;
+  /** 速度を出すための直近の位置（pointer イベントの時刻つき） */
+  samples: { t: number; x: number }[];
 };
+
+const VELOCITY_WINDOW_MS = 100;
+
+/** 直近 100ms の指の動きから横の速度（px/s）を出す */
+export function velocityFromSamples(samples: { t: number; x: number }[]): number {
+  if (samples.length < 2) return 0;
+  const last = samples[samples.length - 1]!;
+  const recent = samples.filter((s) => last.t - s.t <= VELOCITY_WINDOW_MS);
+  const first = recent.length >= 2 ? recent[0]! : samples[samples.length - 2]!;
+  const dt = last.t - first.t;
+  if (dt <= 0) return 0;
+  return ((last.x - first.x) / dt) * 1000;
+}
 
 function nextFrame(): Promise<void> {
   return new Promise((r) => requestAnimationFrame(() => r()));
@@ -136,8 +151,10 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       }
       const sign = direction === "right" ? 1 : -1;
       measure();
-      // 同じ方向へ画面外（幅 × 1.2）へ 200ms で抜ける
-      await animate(x, sign * widthRef.current * 1.2, { duration: reduce ? 0.12 : 0.2, ease: easeOut });
+      // 同じ方向へ画面外（幅 × 1.2。広い画面ではそれでは画面内に残るので、画面の端の外まで）へ 200ms で抜ける
+      const rect = cardRef.current?.getBoundingClientRect();
+      const toEdge = rect ? (sign > 0 ? window.innerWidth - rect.left + 24 : rect.right + 24) : 0;
+      await animate(x, sign * Math.max(widthRef.current * 1.2, toEdge), { duration: reduce ? 0.12 : 0.2, ease: easeOut });
       setFlown(true);
       await nextFrame();
       await performTransition(qc, item, outcome as CeoAction);
@@ -193,6 +210,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       longPressFired: false,
       lastDx: 0,
       lastDy: 0,
+      samples: [{ t: e.timeStamp, x: 0 }],
     };
     cancelLongPress();
     const { clientX, clientY } = e;
@@ -213,6 +231,8 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     const dy = e.clientY - g.startY;
     g.lastDx = dx;
     g.lastDy = dy;
+    g.samples.push({ t: e.timeStamp, x: dx });
+    if (g.samples.length > 12) g.samples.shift();
     if (g.axis === null) {
       const axis = lockAxis(dx, dy);
       if (axis === null) return;
@@ -259,7 +279,9 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     if (g.axis === "x") {
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
-      const vx = x.getVelocity();
+      // 離した位置が最後の move と同じなら、その時刻は速度に入れない（指は止まっていない。Motion のドラッグと同じ扱い）
+      if (g.samples[g.samples.length - 1]?.x !== dx) g.samples.push({ t: e.timeStamp, x: dx });
+      const vx = velocityFromSamples(g.samples);
       const d = decideSwipe({ x: dx, y: dy }, { x: vx, y: 0 }, widthRef.current, item.status, "x");
       endGesture();
       if (d.commit && d.outcome && d.direction) void commit(d.outcome, d.direction);
@@ -366,8 +388,9 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        onLostPointerCapture={() => {
-          if (gesture.current?.axis === "x") onPointerCancel();
+        onLostPointerCapture={(e) => {
+          // タッチは最初に触れた子要素が暗黙に捕まえているので、カード自身が手放したときだけ扱う
+          if (e.target === e.currentTarget && gesture.current?.axis === "x" && gesture.current.pointerId === e.pointerId) onPointerCancel();
         }}
         onClick={onClick}
         onKeyDown={onKeyDown}

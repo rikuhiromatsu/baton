@@ -44,7 +44,7 @@ export function UsageRing({ usage }: { usage: UsageToday | undefined }) {
   return (
     <span className="usage-ring" data-testid={TESTIDS.usageRing} title={usage ? `${compactNumber(used)} / ${compactNumber(limit)}` : undefined}>
       <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-        <circle cx="11" cy="11" r={r} fill="none" stroke="rgba(11,13,18,0.08)" strokeWidth="2.5" />
+        <circle cx="11" cy="11" r={r} fill="none" stroke="rgba(11,13,18,0.1)" strokeWidth="2.5" />
         <circle
           cx="11"
           cy="11"
