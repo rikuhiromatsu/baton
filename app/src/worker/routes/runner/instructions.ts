@@ -23,6 +23,7 @@ import {
   type InstructionStatus,
   type ServerEvent,
 } from "@baton/shared";
+import { z } from "zod";
 import { ARTIFACT_SELECT } from "../../db/detail.ts";
 import { getSummary, requireLease, requireWritable, transitionAfterUpdate, writableSql } from "../../db/instructions.ts";
 import { leaderThreadIdOf } from "../../db/projects.ts";
@@ -35,6 +36,8 @@ import { checked, readJson } from "../../lib/validate.ts";
 import type { AppEnv } from "../../types.ts";
 
 export const runnerInstructionRoutes = new Hono<AppEnv>();
+
+const DecisionOutput = z.object({ decision: DecisionSchema });
 
 /** D1 の制約違反（外部キー・CHECK・UNIQUE）を 400 / 409 にする */
 export function mapConstraintError(err: unknown): never {
@@ -416,6 +419,20 @@ runnerInstructionRoutes.post("/decisions", async (c) => {
   await publish(c.env, events);
   await queuePush(c.env, decisionPushCandidate(decision));
   return c.json(checked(c.env, DecisionSchema, decision), 201);
+});
+
+/**
+ * 判断・承認を読む（decision.answered の合図は ID だけなので、verdict・answer はここで取る。7.6）。
+ * その指示を他のランナーが握っていれば 409（関わっているランナーだけが読む）
+ */
+runnerInstructionRoutes.get("/decisions/:id", async (c) => {
+  const db = c.env.DB;
+  const row = await db.prepare("SELECT * FROM decisions WHERE id = ?").bind(c.req.param("id")).first<DecisionRow>();
+  if (!row) throw notFound("decision not found");
+  const inst = await db.prepare("SELECT lease_runner_id, lease_expires_at FROM instructions WHERE id = ?").bind(row.instruction_id).first<{ lease_runner_id: string | null; lease_expires_at: number | null }>();
+  const runnerId = c.get("runner").id;
+  if (inst?.lease_runner_id && inst.lease_runner_id !== runnerId && (inst.lease_expires_at ?? 0) >= Date.now()) throw conflict("lease held by another runner");
+  return c.json(checked(c.env, DecisionOutput, { decision: toDecision(row) }));
 });
 
 // ───────────── 成果物 ─────────────

@@ -189,6 +189,13 @@ describe("W21 承認", () => {
     expect((await browser(s, `/api/decisions/${id1}/answer`, { body: { answer: "どうぞ" } })).status).toBe(400);
     const allow = (await (await browser(s, `/api/decisions/${id1}/answer`, { body: { verdict: "allow" } })).json()) as { decision: Decision };
     expect(allow.decision).toMatchObject({ status: "answered", verdict: "allow" });
+    // ランナーは decision.answered（ID だけ）を受けて、結論をここで読む
+    const read = await runner(r, `/api/runner/decisions/${id1}`);
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { decision: Decision }).decision).toMatchObject({ id: id1, status: "answered", verdict: "allow", sessionId: sid });
+    expect((await runner(r, `/api/runner/decisions/${crypto.randomUUID()}`)).status).toBe(404);
+    const other = await registerRunner();
+    expect((await runner(other, `/api/runner/decisions/${id1}`)).status).toBe(409);
     const id2 = crypto.randomUUID();
     await runner(r, "/api/runner/approvals", { body: req(id2) });
     const deny = (await (await browser(s, `/api/decisions/${id2}/answer`, { body: { verdict: "deny", answer: "外部に送らないで" } })).json()) as { decision: Decision };
@@ -215,6 +222,36 @@ describe("W21 承認", () => {
     expect(d).toMatchObject({ kind: "interrupted", toolName: "Bash" });
     expect((await env.DB.prepare("SELECT status FROM decisions WHERE id = ?").bind(ids[0]).first())?.status).toBe("canceled");
     expect(await statusOf(a.id)).toBe("needs_decision");
+  });
+});
+
+describe("W21 メンバーの段階の終わり", () => {
+  it("release（shutdown）で lease が外れ、状態はそのまま。次のラウンドの claim・承認後の finalize に進める", async () => {
+    const s = await login();
+    const r = await registerRunner();
+    await clearWork();
+    const a = await membersInstruction(r);
+    expect((await claim(r, ["instruction"])).status).toBe(200);
+    await env.DB.prepare("UPDATE tasks SET status = 'done' WHERE instruction_id = ?").bind(a.id).run();
+    // ランナーはリーダーへ戻してから lease を外す
+    expect((await runner(r, `/api/runner/instructions/${a.id}`, { method: "PATCH", body: { phase: "leader" } })).status).toBe(200);
+    expect((await runner(r, `/api/runner/instructions/${a.id}/release`, { body: { reason: "shutdown", notBefore: null } })).status).toBe(204);
+    expect(await env.DB.prepare("SELECT status, phase, lease_runner_id FROM instructions WHERE id = ?").bind(a.id).first()).toEqual({ status: "running", phase: "leader", lease_runner_id: null });
+    // 2 回目の release は 409（ランナーは無視する）
+    expect((await runner(r, `/api/runner/instructions/${a.id}/release`, { body: { reason: "shutdown", notBefore: null } })).status).toBe(409);
+    // リーダーが追加のラウンドを出すと、別のランナーでも claim できる
+    await runner(r, `/api/runner/instructions/${a.id}`, { method: "PATCH", body: { phase: "members" } });
+    await runner(r, "/api/runner/tasks", { body: { tasks: [{ instructionId: a.id, parentTaskId: null, assigneeAgentId: null, kind: "work", planKey: "t2", dependsOn: [], title: "追加", spec: "", paths: [], round: 2, seq: 0 }] } });
+    const other = await registerRunner();
+    expect((await claim(other, ["instruction"])).status).toBe(200);
+    await runner(other, `/api/runner/instructions/${a.id}/release`, { body: { reason: "shutdown", notBefore: null } });
+    // COO の present → 承認 → 20 秒後の finalize
+    await runner(r, `/api/runner/instructions/${a.id}`, { method: "PATCH", body: { status: "review", resultSummary: "まとめ" } });
+    await browser(s, `/api/instructions/${a.id}/transition`, { body: { action: "approve", expectedStatus: "review" } });
+    await env.DB.prepare("UPDATE instructions SET status_changed_at = ? WHERE id = ?").bind(Date.now() - 21_000, a.id).run();
+    const fin = await claim(r, ["finalize"]);
+    expect(fin.status).toBe(200);
+    expect(((await fin.json()) as { kind: string; instruction: { id: string } }).instruction.id).toBe(a.id);
   });
 });
 
