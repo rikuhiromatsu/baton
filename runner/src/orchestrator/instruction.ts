@@ -146,7 +146,10 @@ async function runUnits(run: Run): Promise<"ok" | "released"> {
       .sort((a, b) => a.round - b.round || a.seq - b.seq)[0];
     if (!task) return null;
     started.add(task.id);
-    return () => runTaskUnit(run, task);
+    return () => {
+      run.worked = true;
+      return runTaskUnit(run, task);
+    };
   };
 
   const launchNext = async (): Promise<boolean> => {
@@ -158,7 +161,6 @@ async function runUnits(run: Run): Promise<"ok" | "released"> {
       let r: UnitResult;
       try {
         checkLimits(run);
-        run.worked = true;
         r = await unit();
       } catch (err) {
         if (err instanceof LimitError) throw err;
@@ -329,6 +331,8 @@ async function resumeUnit(run: Run, s: AgentSessionSummary): Promise<(() => Prom
   const finalInput = input;
   const followUpOnly = s.status === "done" || s.status === "idle" || s.status === "failed";
   return async () => {
+    // 追加の依頼だけ（終わったタスク）は、ラウンドのまとめを出し直さない（結果はそのタスクだけリーダーへ。5.6）
+    if (!followUpOnly) run.worked = true;
     await restoreWorktree(ctx, ws, run.instruction.id);
     if (task && task.status !== "running" && !followUpOnly) run.tasks.set(task.id, await ctx.api.patchTask(task.id, { status: "running" }));
     return driveMember(run, { task: task ?? null, ws, agent, sessionId: s.id, resume: true, input: finalInput, createSession: false, oneTimeAllow, followUpOnly, startSeq: s.lastSeq });
