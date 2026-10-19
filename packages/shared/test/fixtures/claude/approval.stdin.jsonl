@@ -1,0 +1,7 @@
+{"type":"control_request","request_id":"req_init","request":{"subtype":"initialize"}}
+{"type":"user","message":{"role":"user","content":"Bash で `echo probe > approved.txt` を 1 回だけ実行して、結果を一言で。"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"4b766c4e-3cd0-4d92-beef-735eb1e9c97d","response":{"behavior":"allow","updatedInput":{"command":"echo probe > approved.txt","description":"Write probe text to approved.txt once"}}}}
+{"type":"user","message":{"role":"user","content":"次に Bash で `echo second > denied.txt` を 1 回だけ実行して。拒否されたら一言で報告して。"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"9bafcb63-f9d5-457c-bbdc-fcafb8d2bdb6","response":{"behavior":"deny","message":"CEO が拒否しました（試験）"}}}
+{"type":"user","message":{"role":"user","content":"産地について 300 文字くらいで説明して。"}}
+{"type":"control_request","request_id":"req_int","request":{"subtype":"interrupt"}}

@@ -21,14 +21,20 @@
   ],
   "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "BatonHub" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BatonHub"] }],
-  "ai": { "binding": "AI" },
+  // v2: Workers AI は使わない（ai バインディングを消した。DESIGN-v2 12.1）。
+  // シークレット（wrangler secret put。値はここに書かない）:
+  //   GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・ALLOWED_EMAILS（v1）
+  //   VAPID_PUBLIC_KEY（P-256 の公開鍵、base64url の非圧縮点）・VAPID_PRIVATE_KEY（JWK の d、base64url）
+  //   … npm run push:keys -w app が作って登録する（DESIGN-v2 10.3）
   "vars": {
     "BATON_ENV": "production",
-    "APP_ORIGIN": "https://baton.rikuhiromatsu.workers.dev"
+    "APP_ORIGIN": "https://baton.rikuhiromatsu.workers.dev",
+    // VAPID の JWT の sub（RFC 8292）
+    "VAPID_SUBJECT": "https://baton.rikuhiromatsu.workers.dev"
   },
   "env": {
     "e2e": {
-      // e2e では ai バインディングを書かない → ScriptedAiClient（設計書 8.2）
+      // e2e の VAPID_PUBLIC_KEY・VAPID_PRIVATE_KEY はテスト用の鍵を .dev.vars.e2e に置く（本番には登録しない）
       "d1_databases": [
         {
           "binding": "DB",
@@ -38,7 +44,7 @@
         }
       ],
       "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "BatonHub" }] },
-      "vars": { "BATON_ENV": "e2e", "APP_ORIGIN": "http://localhost:8790" }
+      "vars": { "BATON_ENV": "e2e", "APP_ORIGIN": "http://localhost:8790", "VAPID_SUBJECT": "http://localhost:8790" }
     }
   }
 }

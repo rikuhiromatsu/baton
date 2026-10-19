@@ -1,24 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   CEO_ACTIONS,
-  CooRouteAction,
-  CreateInstructionInput,
   INSTRUCTION_STATUSES,
-  LeaderPlanAction,
-  MemberStepAction,
-  STAGE_SCHEMAS,
+  PostMessageInput,
   SWIPE_MAP,
   TransitionInput,
+  AnswerDecisionInput,
+  CreateBotTokenInput,
+  CreatePushSubscriptionInput,
+  RunnerInstructionPatch,
+  canReopen,
   canSystemTransition,
-  extractFirstJsonObject,
+  displayGroup,
+  isAllowedPushEndpoint,
   nextStatus,
-  parseStageAction,
-  stageJsonSchema,
+  swipeActionFor,
+  API_PATHS,
+  TEST_API_PATHS,
+  ERROR_CODES,
   type CeoAction,
   type InstructionStatus,
 } from "../src/index.ts";
 
-// 設計書 3.4 の CEO 操作の遷移（restore を除く）
+// v1 設計書 3.4 の CEO 操作の遷移（restore を除く）。v2 でも同じ（DESIGN-v2 4.4）
 const ALLOWED: Array<[InstructionStatus, CeoAction, InstructionStatus]> = [
   ["review", "approve", "done"],
   ["review", "send_back", "queued"],
@@ -32,7 +36,7 @@ const ALLOWED: Array<[InstructionStatus, CeoAction, InstructionStatus]> = [
   ["canceled", "retry", "queued"],
 ];
 
-describe("S1 nextStatus", () => {
+describe("S1 nextStatus と v2 の遷移", () => {
   it("3.4 の遷移をすべて許し、それ以外をすべて拒否する", () => {
     for (const from of INSTRUCTION_STATUSES) {
       for (const action of CEO_ACTIONS) {
@@ -54,18 +58,33 @@ describe("S1 nextStatus", () => {
     }
   });
 
-  it("システムの遷移は 3.4 の矢印だけ", () => {
-    expect(canSystemTransition("queued", "running")).toBe(true);
-    expect(canSystemTransition("running", "review")).toBe(true);
-    expect(canSystemTransition("running", "needs_decision")).toBe(true);
-    expect(canSystemTransition("needs_decision", "queued")).toBe(true);
-    expect(canSystemTransition("review", "done")).toBe(false);
-    expect(canSystemTransition("queued", "review")).toBe(false);
+  it("システムの遷移は v1 の矢印 ＋ v2 の reopen・回答での再開だけ", () => {
+    const expected: Array<[InstructionStatus, InstructionStatus]> = [
+      ["queued", "running"],
+      ["running", "queued"],
+      ["running", "needs_decision"],
+      ["running", "review"],
+      ["running", "failed"],
+      ["needs_decision", "queued"],
+      ["needs_decision", "running"],
+      ["review", "running"],
+      ["done", "running"],
+    ];
+    for (const from of INSTRUCTION_STATUSES) {
+      for (const to of INSTRUCTION_STATUSES) {
+        const ok = expected.some(([f, t]) => f === from && t === to);
+        expect(canSystemTransition(from, to), `${from} -> ${to}`).toBe(ok);
+      }
+    }
+    expect(canReopen("review")).toBe(true);
+    expect(canReopen("done")).toBe(true);
+    expect(canReopen("failed")).toBe(false);
+    expect(canReopen("archived")).toBe(false);
   });
 });
 
-describe("S2 SWIPE_MAP", () => {
-  it("3.5 の表と一致する", () => {
+describe("S2 フリック（SWIPE_MAP・displayGroup・swipeActionFor）", () => {
+  it("まとまりのフリックは v1 3.5 の表と一致する", () => {
     expect(SWIPE_MAP).toEqual({
       queued: { right: null, left: "cancel" },
       running: { right: null, left: "cancel" },
@@ -87,16 +106,39 @@ describe("S2 SWIPE_MAP", () => {
       }
     }
   });
+
+  it("開いた判断（承認を含む）のある running・queued は判断待ちのまとまり", () => {
+    expect(displayGroup({ status: "running", openDecisionCount: 1 })).toBe("needs_decision");
+    expect(displayGroup({ status: "queued", openDecisionCount: 2 })).toBe("needs_decision");
+    expect(displayGroup({ status: "running", openDecisionCount: 0 })).toBe("running");
+    expect(displayGroup({ status: "review", openDecisionCount: 1 })).toBe("review");
+    expect(displayGroup({ status: "done", openDecisionCount: 1 })).toBe("done");
+  });
+
+  it("承認待ちの running の右フリックは判断シートを開くだけ（承認はフリックで許可しない）", () => {
+    expect(swipeActionFor({ status: "running", openDecisionCount: 1 }, "right")).toBe("open_decision");
+    expect(swipeActionFor({ status: "running", openDecisionCount: 1 }, "left")).toBe("cancel");
+    expect(swipeActionFor({ status: "running", openDecisionCount: 0 }, "right")).toBeNull();
+  });
+
+  it("判断が無ければ swipeActionFor は SWIPE_MAP と同じ", () => {
+    for (const status of INSTRUCTION_STATUSES) {
+      for (const dir of ["right", "left"] as const) {
+        expect(swipeActionFor({ status, openDecisionCount: 0 }, dir), `${status} ${dir}`).toBe(SWIPE_MAP[status][dir]);
+      }
+    }
+  });
 });
 
 describe("S3 zod スキーマの境界", () => {
-  it("CreateInstructionInput", () => {
+  it("PostMessageInput（CEO の発言）", () => {
     const clientId = crypto.randomUUID();
-    expect(CreateInstructionInput.safeParse({ clientId, body: "調べて" }).success).toBe(true);
-    expect(CreateInstructionInput.safeParse({ clientId, body: "   " }).success).toBe(false);
-    expect(CreateInstructionInput.safeParse({ clientId, body: "a".repeat(8000) }).success).toBe(true);
-    expect(CreateInstructionInput.safeParse({ clientId, body: "a".repeat(8001) }).success).toBe(false);
-    expect(CreateInstructionInput.safeParse({ clientId: "x", body: "a" }).success).toBe(false);
+    expect(PostMessageInput.safeParse({ clientId, body: "台本を作りたい" }).success).toBe(true);
+    expect(PostMessageInput.safeParse({ clientId, body: "   " }).success).toBe(false);
+    expect(PostMessageInput.safeParse({ clientId, body: "a".repeat(8000) }).success).toBe(true);
+    expect(PostMessageInput.safeParse({ clientId, body: "a".repeat(8001) }).success).toBe(false);
+    expect(PostMessageInput.safeParse({ clientId: "x", body: "a" }).success).toBe(false);
+    expect(PostMessageInput.safeParse({ clientId, body: "a", contextProjectId: "p1" }).success).toBe(true);
   });
 
   it("TransitionInput", () => {
@@ -105,55 +147,50 @@ describe("S3 zod スキーマの境界", () => {
     expect(TransitionInput.safeParse({ action: "send_back", expectedStatus: "review", comment: "a".repeat(2001) }).success).toBe(false);
   });
 
-  it("CooRouteAction の slug・メンバー数", () => {
-    const base = {
-      kind: "route",
-      title: "調査",
-      brief: "方針",
-      project: { mode: "new", name: "調査", slug: "research", summary: "", leader: { name: "L", specialty: "" }, members: [{ name: "M", specialty: "" }] },
-    };
-    expect(CooRouteAction.safeParse(base).success).toBe(true);
-    expect(CooRouteAction.safeParse({ ...base, project: { ...base.project, slug: "Bad Slug" } }).success).toBe(false);
-    expect(CooRouteAction.safeParse({ ...base, project: { ...base.project, members: [] } }).success).toBe(false);
-    const four = Array.from({ length: 4 }, (_, i) => ({ name: `M${i}`, specialty: "" }));
-    expect(CooRouteAction.safeParse({ ...base, project: { ...base.project, members: four } }).success).toBe(false);
+  it("AnswerDecisionInput は answer か verdict のどちらかが要る", () => {
+    expect(AnswerDecisionInput.safeParse({ verdict: "allow" }).success).toBe(true);
+    expect(AnswerDecisionInput.safeParse({ answer: "続けて" }).success).toBe(true);
+    expect(AnswerDecisionInput.safeParse({}).success).toBe(false);
+    expect(AnswerDecisionInput.safeParse({ verdict: "maybe" }).success).toBe(false);
   });
 
-  it("LeaderPlanAction のタスク数とキー", () => {
-    const t = (key: string) => ({ key, title: "x", spec: "y", assignee: "M", dependsOn: [] });
-    expect(LeaderPlanAction.safeParse({ kind: "plan", tasks: [t("t1")] }).success).toBe(true);
-    expect(LeaderPlanAction.safeParse({ kind: "plan", tasks: [] }).success).toBe(false);
-    expect(LeaderPlanAction.safeParse({ kind: "plan", tasks: [t("x1")] }).success).toBe(false);
-    expect(LeaderPlanAction.safeParse({ kind: "plan", tasks: Array.from({ length: 7 }, (_, i) => t(`t${i + 1}`)) }).success).toBe(false);
+  it("RunnerInstructionPatch は版と reopen を持てる", () => {
+    expect(RunnerInstructionPatch.safeParse({ status: "review", expectedRevision: 2, resultSummary: "報告" }).success).toBe(true);
+    expect(RunnerInstructionPatch.safeParse({ status: "done" }).success).toBe(false);
+    expect(RunnerInstructionPatch.safeParse({ expectedRevision: 0 }).success).toBe(false);
   });
 
-  it("MemberStepAction の道具名", () => {
-    expect(MemberStepAction.safeParse({ kind: "tool", tool: "fs_write", args: { path: "a.md", content: "x" }, why: "" }).success).toBe(true);
-    expect(MemberStepAction.safeParse({ kind: "tool", tool: "shell", args: {}, why: "" }).success).toBe(false);
-  });
-});
-
-describe("S4 JSON Schema と取り出し", () => {
-  it("全段階のスキーマが JSON Schema になる", () => {
-    for (const stage of Object.keys(STAGE_SCHEMAS) as Array<keyof typeof STAGE_SCHEMAS>) {
-      const { name, schema } = stageJsonSchema(stage);
-      expect(name).toBe(stage);
-      expect(typeof schema).toBe("object");
-      expect(JSON.stringify(schema).length).toBeGreaterThan(20);
-    }
+  it("CreateBotTokenInput のスコープ", () => {
+    expect(CreateBotTokenInput.safeParse({ name: "Grok 秘書", scopes: ["read", "message"] }).success).toBe(true);
+    expect(CreateBotTokenInput.safeParse({ name: "Grok 秘書", scopes: [] }).success).toBe(false);
+    expect(CreateBotTokenInput.safeParse({ name: "Grok 秘書", scopes: ["admin"] }).success).toBe(false);
   });
 
-  it("前後の文章や囲みがあっても最初の JSON を取り出す", () => {
-    expect(extractFirstJsonObject('はい。\n```json\n{"kind":"final","report":"a {b} \\"c\\""}\n```')).toEqual({
-      kind: "final",
-      report: 'a {b} "c"',
-    });
-    expect(() => extractFirstJsonObject("JSON なし")).toThrow();
-    expect(() => extractFirstJsonObject('{"a": 1')).toThrow();
+  it("通知の送り先は許可したホストの https だけ（SSRF 対策。10.3）", () => {
+    expect(isAllowedPushEndpoint("https://web.push.apple.com/QGx")).toBe(true);
+    expect(isAllowedPushEndpoint("https://fcm.googleapis.com/fcm/send/abc")).toBe(true);
+    expect(isAllowedPushEndpoint("https://updates.push.services.mozilla.com/wpush/v2/x")).toBe(true);
+    expect(isAllowedPushEndpoint("https://wns2-par02p.notify.windows.com/w/?token=x")).toBe(true);
+    expect(isAllowedPushEndpoint("http://fcm.googleapis.com/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://evil.example.com/push.apple.com")).toBe(false);
+    expect(isAllowedPushEndpoint("https://push.apple.com.evil.com/x")).toBe(false);
+    expect(isAllowedPushEndpoint("https://fcm.googleapis.com:8443/x")).toBe(false);
+    expect(isAllowedPushEndpoint("http://localhost:8799/push/a")).toBe(false);
+    expect(isAllowedPushEndpoint("http://localhost:8799/push/a", { allowE2E: true })).toBe(true);
+    expect(isAllowedPushEndpoint("not a url")).toBe(false);
+    const keys = { p256dh: "BPk", auth: "x" };
+    expect(CreatePushSubscriptionInput.safeParse({ endpoint: "https://web.push.apple.com/a", keys }).success).toBe(true);
   });
 
-  it("parseStageAction が検査まで行う", () => {
-    expect(parseStageAction("coo_final", '{"kind":"final","report":"完了"}')).toEqual({ kind: "final", report: "完了" });
-    expect(() => parseStageAction("coo_final", '{"kind":"final","report":""}')).toThrow();
+  it("v1 の Workers AI と指示の直接作成は契約から消えている（12.1）", () => {
+    const paths = JSON.stringify(Object.fromEntries(Object.entries(API_PATHS).map(([k, v]) => [k, typeof v === "function" ? (v as (...a: string[]) => string)("x", "y") : v])));
+    expect(paths).not.toContain("/api/runner/ai/");
+    expect(paths).not.toContain("/api/usage/");
+    expect(paths).not.toContain("/events");
+    expect(ERROR_CODES).not.toContain("ai_unavailable" as never);
+    expect(ERROR_CODES).not.toContain("ai_quota" as never);
+    // 本番の成果物に /api/test/ を残さないため、テスト用のパスは別の定数にある
+    expect(paths).not.toContain("/api/test/");
+    expect(Object.values(TEST_API_PATHS).every((p) => p.startsWith("/api/test/"))).toBe(true);
   });
 });

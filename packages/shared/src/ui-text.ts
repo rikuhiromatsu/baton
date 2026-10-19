@@ -1,6 +1,11 @@
-// 画面に出してよい固定文言（設計書 7.11）。これ以外の固定文言は置かない。F7 のテストがこの一覧で検査する。
-import { ACTION_LABELS, STATUS_LABELS } from "./status.ts";
+// 画面に出してよい固定文言（v1 設計書 7.11、DESIGN-v2 13.14）。これ以外の固定文言は置かない。F7 のテストがこの一覧で検査する。
+// AI が生成した文章・利用者の入力・エージェントやプロジェクトの名前・数・時刻は対象外。
+// v2 で変えたもの: メニューの「プロジェクト」→「組織」。消したもの: v1 の詳細の「タスク」「ログ」「生ログ」（トランスクリプトと TODO タブへ）。
+import { ACTION_LABELS, AGENT_STATE_LABELS, STATUS_LABELS } from "./status.ts";
+import { MEMBER_PROFILE_LABELS } from "./structured-output.ts";
+import { REPLYING_ACTIVITY, THINKING_ACTIVITY, TODO_UPDATED, TOOL_VERBS, WRITE_UPDATE_VERB, RUNNER_EVENT_LABELS } from "./transcript.ts";
 
+/** v1 から残す文言 */
 export const UI_TEXT = {
   loginGoogle: "Google でログイン",
   loginForbidden: "このアカウントでは使えません",
@@ -9,10 +14,7 @@ export const UI_TEXT = {
   sendAria: "送信",
   sectionReport: "報告",
   sectionDecision: "判断",
-  sectionTasks: "タスク",
   sectionArtifacts: "成果物",
-  sectionLog: "ログ",
-  sectionRawLog: "生ログ",
   answerAria: "回答",
   answerSubmit: "回答する",
   sendBackSubmit: "差し戻す",
@@ -22,9 +24,11 @@ export const UI_TEXT = {
   sendFailed: "送信できませんでした",
   resend: "再送",
   updateFailed: "更新できませんでした",
-  menuProjects: "プロジェクト",
+  menuOrg: "組織",
   menuArchive: "アーカイブ",
   menuUsage: "使用量",
+  menuSettings: "設定",
+  menuNewTopic: "新しい話題",
   menuLogout: "ログアウト",
   reload: "再読み込み",
   limitReached: "上限に達しました",
@@ -36,20 +40,167 @@ export const UI_TEXT = {
   onboardingSkip: "スキップ",
 } as const;
 
-/** 初回の案内（D-38）。最初のログイン時とメニューの「使い方」で出す */
+/** v2 で足す文言（13.14 の表を場所ごとに） */
+export const UI_TEXT_V2 = {
+  sidebar: {
+    coo: "COO",
+    approvals: "承認待ち",
+    other: "その他",
+    org: "組織",
+    archive: "アーカイブ",
+    settings: "設定",
+    talking: "話し中",
+    awaitingReply: "返事待ち",
+    drawerAria: "プロジェクト",
+  },
+  conversation: {
+    backToCoo: "← COO に戻る",
+    reportedToCoo: "COO に報告されます",
+    talkToLeader: "リーダーと話す",
+    openInstruction: "指示を開く",
+    viewInConversation: "会話で見る",
+    backToConversation: "← 会話に戻る",
+    toCoo: "から COO へ",
+    read: "既読",
+    latest: "最新へ",
+    thinking: "考えている…",
+    copy: "コピー",
+    viewWork: "作業を見る",
+    about: "について",
+    arrow: "→",
+    failedReply: "うまく返事ができませんでした",
+    fromSecretary: "秘書から",
+    secretarySuggestion: "秘書の案",
+  },
+  proposal: {
+    title: "プロジェクト案",
+    goal: "目的",
+    workspace: "作業場所",
+    baton: "Baton 専用",
+    repo: "既存リポジトリ",
+    team: "チーム",
+    accept: "立てる",
+    revise: "直す",
+    accepted: "立てました",
+    declined: "見送り",
+    dirty: "作業中の変更あり",
+  },
+  composer: {
+    cooAria: "COO への指示",
+    leaderAria: "リーダーへの発言",
+    followupAria: "追加の依頼",
+    clearContextAria: "プロジェクトの指定を外す",
+    interrupt: "中断",
+  },
+  instruction: { cards: "指示", rev: "rev" },
+  detailTabs: { transcript: "やりとり", todo: "TODO", diff: "変更", report: "報告", artifacts: "成果物", standard: "標準", detailed: "詳細" },
+  roles: { coo: "COO", leader: "リーダー", member: "メンバー", ceo: "CEO" },
+  transcript: {
+    start: "開始",
+    end: "終了",
+    retry: "再試行",
+    quotaHit: "枠切れ",
+    quotaWait: "枠待ち",
+    resume: "再開",
+    commit: "コミット",
+    integrate: "統合",
+    conflict: "衝突",
+    codexReview: "Codex レビュー",
+    denied: "拒否:",
+    awaitingApproval: "承認待ち:",
+    conclusion: "結論",
+    fullText: "全文",
+    fromCoo: "COO から",
+    fromLeader: "リーダーから",
+    memberResults: "メンバーの結果",
+    ceoAnswer: "CEO の回答",
+    turns: "ターン",
+    minutes: "分",
+    seconds: "秒",
+    operations: "件の操作",
+    thought: "考え",
+  },
+  notices: { approve: "承認", sendBack: "差し戻し", cancel: "取消", retry: "再実行", newTopic: "新しい話題" },
+  approval: { approve: "承認", allow: "許可", deny: "拒否", reason: "理由" },
+  diff: { branch: "ブランチ", noDiff: "差分なし" },
+  org: {
+    linkRepo: "リポジトリを紐づける",
+    unlinkRepo: "紐づけを外す",
+    createFromRepo: "リポジトリから作る",
+    viewInstructions: "指示を見る",
+    profile: "職種",
+    skills: "スキル",
+    tools: "道具",
+    others: "ほか",
+    count: "件",
+  },
+  settings: {
+    title: "設定",
+    appearance: "外観",
+    auto: "自動",
+    light: "ライト",
+    dark: "ダーク",
+    notifications: "通知",
+    thisDevice: "この端末",
+    remove: "外す",
+    iosHint: "ホーム画面に追加すると通知を受け取れます",
+    enablePush: "通知を受け取る",
+    secretary: "秘書",
+    issue: "発行",
+    revoke: "失効",
+    name: "名前",
+    scopeRead: "読む",
+    scopeMessage: "COO に送る",
+    scopePropose: "回答案",
+    shownOnce: "この値は二度と表示されません",
+    audit: "記録",
+    roles: "役割",
+  },
+  quota: { fiveHour: "5 時間枠", sevenDay: "週の枠", resetsAt: "に戻る" },
+  runner: { notLoggedIn: "Claude にログインしていません" },
+  failures: { limitReached: "上限に達しました", notSubscription: "サブスク以外の認証" },
+} as const;
+
+/** 初回の案内（D-38・D-69）。最初のログイン時とメニューの「使い方」で出す。最後のステップに「通知を受け取る」 */
 export const ONBOARDING_STEPS = [
-  { title: "指示を出す", body: "下の入力欄に、やってほしいことを書いて送ります。受け取るのは AI の COO です。" },
-  { title: "チームが動く", body: "COO がプロジェクトとチームを決め、リーダーが作業を分け、メンバーが Mac mini で進めます。青い点が点滅している間は実行中です。" },
-  { title: "報告を確かめる", body: "終わると「確認」に届きます。カードをタップすると、報告・タスク・成果物を開けます。" },
-  { title: "フリックで決める", body: "右へフリックで承認、左で差し戻し。紫の「判断待ち」は右へフリックで回答します。5 秒間は「元に戻す」で取り消せます。" },
-  { title: "いつでも見直せる", body: "右上のアイコンから、プロジェクト・アーカイブ・使用量と、この案内を開けます。" },
+  { title: "COO に話す", body: "下の入力欄に、やりたいことを書いて送ります。相手は COO です。曖昧なら COO が聞き返します。" },
+  {
+    title: "プロジェクトを立てる",
+    body: "目的が固まると、COO がプロジェクト案（目的・作業場所・チーム）を出します。「立てる」を押すとチームができます。",
+  },
+  {
+    title: "チームが遂行する",
+    body: "COO がリーダーに仕事を振ると、指示のカードができます。急ぎの方向修正は、リーダーのところへ降りて直接話せます。話した内容はリーダーが COO に報告します。",
+  },
+  {
+    title: "承認と確認",
+    body: "紫は、あなたの返事を待っています。危ない操作は「許可」を押すまで実行されません。終わった仕事はカードを右へフリックで承認します。",
+  },
+  { title: "通知を受け取る", body: "返事が要るときに通知でお知らせします。iPhone はホーム画面に追加すると受け取れます。" },
 ] as const;
+
+function flatten(v: unknown): string[] {
+  if (typeof v === "string") return [v];
+  if (v && typeof v === "object") return Object.values(v).flatMap(flatten);
+  return [];
+}
 
 /** 画面に出てよい固定文言の全集合（AI が生成した文章と利用者の入力は対象外） */
 export const ALLOWED_FIXED_TEXTS: readonly string[] = [
-  ...Object.values(UI_TEXT),
-  ...Object.values(STATUS_LABELS),
-  ...Object.values(ACTION_LABELS),
-  ...ONBOARDING_STEPS.flatMap((s) => [s.title, s.body]),
-  "Baton",
+  ...new Set([
+    ...flatten(UI_TEXT),
+    ...flatten(UI_TEXT_V2),
+    ...Object.values(STATUS_LABELS),
+    ...Object.values(ACTION_LABELS),
+    ...Object.values(AGENT_STATE_LABELS),
+    ...Object.values(MEMBER_PROFILE_LABELS),
+    ...flatten(TOOL_VERBS),
+    WRITE_UPDATE_VERB,
+    TODO_UPDATED,
+    THINKING_ACTIVITY,
+    REPLYING_ACTIVITY,
+    ...RUNNER_EVENT_LABELS,
+    ...ONBOARDING_STEPS.flatMap((s) => [s.title, s.body]),
+    "Baton",
+  ]),
 ];

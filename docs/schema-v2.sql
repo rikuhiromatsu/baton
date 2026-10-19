@@ -20,6 +20,9 @@ ALTER TABLE projects ADD COLUMN goal TEXT NOT NULL DEFAULT '';
 -- エージェントの職種プロファイル（runner/profiles/profiles.json のキー。DESIGN-v2 6 章）。NULL なら役割の既定（coo / leader / generalist）
 ALTER TABLE agents ADD COLUMN profile TEXT;
 
+-- メンバーのタスクが触ってよい範囲（リーダーの plan の paths。DESIGN-v2 4.6・7.3。D-96）
+ALTER TABLE tasks ADD COLUMN paths TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(paths));
+
 -- ランナーが ~/projects を走査して見つけた git リポジトリの候補（画面の「リポジトリを紐づける」の選択肢）
 CREATE TABLE runner_repos (
   path           TEXT PRIMARY KEY,             -- 絶対パス（realpath 済み、~/projects 配下）
@@ -381,9 +384,9 @@ SELECT 'v1-ceo-' || i.id, 'thread-coo', 2 * ROW_NUMBER() OVER (ORDER BY i.create
        i.body, i.id, 'complete', i.created_at, i.created_at
 FROM instructions i;
 INSERT INTO thread_messages (id, thread_id, seq, author_kind, author_agent_id, kind, body, instruction_id, status, created_at, updated_at)
-SELECT 'v1-coo-' || i.id, 'thread-coo', 2 * ROW_NUMBER() OVER (ORDER BY i.created_at, i.id), 'coo', 'agent-coo', 'report',
+SELECT 'v1-coo-' || i.id, 'thread-coo', 2 * i.n, 'coo', 'agent-coo', 'report',
        i.result_summary, i.id, 'complete', COALESCE(i.completed_at, i.updated_at), COALESCE(i.completed_at, i.updated_at)
-FROM instructions i
+FROM (SELECT x.*, ROW_NUMBER() OVER (ORDER BY x.created_at, x.id) AS n FROM instructions x) i  -- 番号は全指示で振ってから絞る（CEO の発言と同じ番号）
 WHERE i.result_summary IS NOT NULL;
 UPDATE threads SET last_seq = (SELECT COALESCE(MAX(seq), 0) FROM thread_messages m WHERE m.thread_id = 'thread-coo'),
                    last_message_at = (SELECT MAX(created_at) FROM thread_messages m WHERE m.thread_id = 'thread-coo')

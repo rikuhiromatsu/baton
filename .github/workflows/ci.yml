@@ -1,7 +1,9 @@
 name: CI
 
 # テストだけを回す（デプロイは Mac mini から。設計書 D-23）。
-# Cloudflare の認証情報は使わない: AI は ScriptedAiClient、D1・DO はローカル（workerd）。
+# 外に繋がない（DESIGN-v2 15.1・D-60）: 本物の claude は呼ばず偽 claude（tools/fake-claude）、
+# 実際のプッシュサービスにも繋がない（偽のプッシュサービス）。Cloudflare の認証情報も使わない（D1・DO はローカルの workerd）。
+# 骨組み（V0）。中身は V4 が仕上げる。
 
 on:
   push:
@@ -10,6 +12,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # ランナーが起動する claude は常に偽物（本物の ~/.local/bin/claude は CI に無い）
+  BATON_CLAUDE_BIN: ${{ github.workspace }}/tools/fake-claude/bin/claude
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,6 +37,8 @@ jobs:
         run: npm run typecheck
       - name: ユニット（shared・web・runner）
         run: npm run test:unit
+      - name: 偽 claude の自己テスト
+        run: npm test -w tools/fake-claude --if-present
       - name: Workers 統合（workerd + D1 + DO）
         run: npm run test:worker -w app
 
