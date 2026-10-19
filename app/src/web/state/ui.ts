@@ -23,6 +23,9 @@ type Ui = {
   /** 起動後、最初の一覧を描いたか（登場アニメーションを 1 回だけにする） */
   listRevealed: boolean;
   setListRevealed: () => void;
+  /** 初回の案内（D-38） */
+  onboardingOpen: boolean;
+  setOnboardingOpen: (open: boolean) => void;
 };
 
 export const useUi = create<Ui>()((set) => ({
@@ -38,4 +41,6 @@ export const useUi = create<Ui>()((set) => ({
   setBubble: (bubble) => set({ bubble }),
   listRevealed: false,
   setListRevealed: () => set({ listRevealed: true }),
+  onboardingOpen: false,
+  setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 }));

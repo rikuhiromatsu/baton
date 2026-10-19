@@ -10,6 +10,7 @@ import { useSession, useUsage } from "../api/queries.ts";
 import { Realtime, getSocketFactory, setRealtime } from "../api/ws.ts";
 import { probeTailnet } from "../lib/tailnet.ts";
 import { ActionMenu } from "./ActionMenu.tsx";
+import { Onboarding, useAutoOnboarding } from "./Onboarding.tsx";
 import { AmbientBackground } from "./AmbientBackground.tsx";
 import { Composer } from "./Composer.tsx";
 import { SendBackSheet } from "./SendBackSheet.tsx";
@@ -24,6 +25,7 @@ export function AppShell() {
   const session = useSession();
   const loggedIn = session.data !== undefined && !session.isError;
   const usage = useUsage(loggedIn);
+  useAutoOnboarding(loggedIn && !isLogin);
 
   // 未ログインはログイン画面へ（7.2 の 401）
   useEffect(() => {
@@ -84,6 +86,7 @@ export function AppShell() {
       <ToastHost />
       <ActionMenu />
       <SendBackSheet />
+      {!isLogin && <Onboarding />}
     </MotionConfig>
   );
 }

@@ -7,7 +7,8 @@ import { TESTIDS, UI_TEXT, type RunnerStatus, type SessionInfo, type UsageToday 
 import { api } from "../api/client.ts";
 import { clockTime, compactNumber } from "../lib/time.ts";
 import { spring } from "../motion/tokens.ts";
-import { IconArchive, IconChevronLeft, IconFolder, IconGauge, IconLogout } from "./Icons.tsx";
+import { IconArchive, IconChevronLeft, IconFolder, IconGauge, IconLogout, IconQuestion } from "./Icons.tsx";
+import { useUi } from "../state/ui.ts";
 
 export function RunnerDot({ runner }: { runner: RunnerStatus | null }) {
   const online = runner?.online ?? false;
@@ -167,6 +168,19 @@ export function TopBar({ session, usage, back }: Props) {
                   <span>{UI_TEXT.menuUsage}</span>
                   <span className="menu__value">{used === null ? "-" : `${compactNumber(used)} / ${compactNumber(usage!.dailyTokenLimit)}`}</span>
                 </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu__item"
+                  data-testid={TESTIDS.menuGuide}
+                  onClick={() => {
+                    setOpen(false);
+                    useUi.getState().setOnboardingOpen(true);
+                  }}
+                >
+                  <IconQuestion size={18} />
+                  <span>{UI_TEXT.menuGuide}</span>
+                </button>
                 <div className="menu__sep" />
                 <button type="button" role="menuitem" className="menu__item" data-testid={TESTIDS.menuLogout} onClick={() => void logout()}>
                   <IconLogout size={18} />
