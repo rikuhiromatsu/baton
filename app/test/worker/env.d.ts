@@ -8,6 +8,8 @@ declare global {
       TEST_MIGRATIONS: D1Migration[];
       /** wrangler.jsonc の assets（JSON 文字列） */
       TEST_ASSETS_CONFIG: string;
+      /** W26 用の空の D1 */
+      MIGRATION_DB: D1Database;
     }
   }
 }
