@@ -158,10 +158,14 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
           model: setup.model,
         });
       }
+      // 続きのセッション（--resume）は新しいプロセスでもトランスクリプトの seq を続きから振る。
+      // 0 から振り直すと、前のプロセスの項目と seq が重なって Worker に捨てられる（ON CONFLICT DO NOTHING）
+      const startSeq = resume ? ((await ctx.api.patchSession(sessionId, { turnsDelta: 0 }).catch(() => null))?.lastSeq ?? 0) : 0;
       const s = new AgentSession(ctx, {
         role,
         sessionId,
         resume,
+        startSeq,
         cwd,
         addDirs: [...new Set(addDirs)],
         model: setup.model,
