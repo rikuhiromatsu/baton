@@ -1,97 +1,53 @@
-// 指示の作成・一覧・詳細・ログ・フリック（設計書 3.4・3.5・4.2）
+// 指示の一覧・詳細・差分・フリック（v1 設計書 3.4・3.5、DESIGN-v2 4.4・12.2）。
+// v2 では CEO が指示を直接作らない（POST /api/instructions は無い。D-73）
 import { Hono } from "hono";
 import {
-  CreateInstructionInput,
+  COO_THREAD_ID,
   InstructionDetailSchema,
-  InstructionSummarySchema,
-  LIMITS,
-  ListEventsOutput,
-  ListEventsQuery,
   ListInstructionsOutput,
   ListInstructionsQuery,
   TransitionInput,
   TransitionOutput,
+  UI_TEXT_V2,
+  WorkspaceDiffSchema,
   nextStatus,
+  type CeoAction,
   type InstructionStatus,
   type RunnerServerEvent,
-  type ServerEvent,
 } from "@baton/shared";
-import { buildDetail } from "../db/details.ts";
-import { getInstructionRow, getSummary, getSummaryRow, listInstructions, transitionAfterUpdate } from "../db/instructions.ts";
-import { toAgentEvent, toDecision, type AgentEventRow, type DecisionRow, type InstructionRow } from "../db/rows.ts";
-import { notifyRunners, publish } from "../hub/broadcast.ts";
+import { buildDetail, buildDiff } from "../db/detail.ts";
+import { getSummary, listInstructions, requireInstruction, transitionAfterUpdate } from "../db/instructions.ts";
+import { leaderThreadIdOf } from "../db/projects.ts";
+import { toDecision, type DecisionRow, type InstructionRow } from "../db/rows.ts";
+import { getThread, inboxInsertStatements, noticeStatements } from "../db/threads.ts";
+import { afterMessages, instructionEvents, notifyRunners, publish } from "../hub/broadcast.ts";
 import { newId } from "../lib/crypto.ts";
-import { ApiError, conflict, invalid, notFound } from "../lib/errors.ts";
+import { conflict, invalid } from "../lib/errors.ts";
 import { checked, readJson } from "../lib/validate.ts";
+import { postCeoMessage } from "../services/conversation.ts";
 import type { AppEnv } from "../types.ts";
 
 export const instructionRoutes = new Hono<AppEnv>();
 
 instructionRoutes.get("/", async (c) => {
-  const q = ListInstructionsQuery.safeParse({ view: c.req.query("view") ?? undefined, cursor: c.req.query("cursor") ?? undefined });
+  const q = ListInstructionsQuery.safeParse({
+    view: c.req.query("view") || undefined,
+    projectId: c.req.query("projectId") || undefined,
+    cursor: c.req.query("cursor") || undefined,
+  });
   if (!q.success) throw invalid("invalid query");
-  const out = await listInstructions(c.env.DB, q.data.view, q.data.cursor, Date.now());
+  const out = await listInstructions(c.env.DB, q.data, Date.now());
   return c.json(checked(c.env, ListInstructionsOutput, out));
 });
 
-instructionRoutes.post("/", async (c) => {
-  const input = await readJson(c, CreateInstructionInput);
-  const db = c.env.DB;
-  const user = c.get("user");
-  const now = Date.now();
-
-  const existing = await db.prepare("SELECT id FROM instructions WHERE client_id = ?").bind(input.clientId).first<{ id: string }>();
-  if (existing) {
-    const summary = await getSummary(db, existing.id);
-    return c.json(checked(c.env, InstructionSummarySchema, summary!), 200);
-  }
-
-  // レート制限: 1 分あたり 30 件（設計書 6.6）
-  const recent = await db
-    .prepare("SELECT count(*) AS n FROM instructions WHERE created_by = ? AND created_at > ?")
-    .bind(user.id, now - 60_000)
-    .first<{ n: number }>();
-  if ((recent?.n ?? 0) >= LIMITS.createInstructionPerMinute) {
-    throw new ApiError("rate_limited", "too many instructions", { retryAfterMs: 60_000 });
-  }
-
-  const id = newId();
-  const res = await db
-    .prepare(
-      `INSERT INTO instructions (id, client_id, created_by, body, status, status_changed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?) ON CONFLICT(client_id) DO NOTHING`,
-    )
-    .bind(id, input.clientId, user.id, input.body, now, now, now)
-    .run();
-  if (res.meta.changes === 0) {
-    // 同じ clientId が同時に来た
-    const again = await db.prepare("SELECT id FROM instructions WHERE client_id = ?").bind(input.clientId).first<{ id: string }>();
-    const summary = again ? await getSummary(db, again.id) : null;
-    if (!summary) throw conflict("duplicate clientId");
-    return c.json(checked(c.env, InstructionSummarySchema, summary), 200);
-  }
-  const summary = (await getSummary(db, id))!;
-  await publish(c.env, [{ t: "instruction.upserted", instruction: summary }]);
-  await notifyRunners(c.env, [{ t: "work.available" }]);
-  return c.json(checked(c.env, InstructionSummarySchema, summary), 201);
-});
-
 instructionRoutes.get("/:id", async (c) => {
-  const row = await getSummaryRow(c.env.DB, c.req.param("id"));
-  if (!row) throw notFound("instruction not found");
+  const row = await requireInstruction(c.env.DB, c.req.param("id"));
   return c.json(checked(c.env, InstructionDetailSchema, await buildDetail(c.env.DB, row)));
 });
 
-instructionRoutes.get("/:id/events", async (c) => {
-  const id = c.req.param("id");
-  const q = ListEventsQuery.safeParse({ after: c.req.query("after") ?? undefined, limit: c.req.query("limit") ?? undefined });
-  if (!q.success) throw invalid("invalid query");
-  const exists = await c.env.DB.prepare("SELECT 1 AS ok FROM instructions WHERE id = ?").bind(id).first();
-  if (!exists) throw notFound("instruction not found");
-  const { results } = await c.env.DB.prepare("SELECT * FROM agent_events WHERE instruction_id = ? AND seq > ? ORDER BY seq LIMIT ?")
-    .bind(id, q.data.after, q.data.limit)
-    .all<AgentEventRow>();
-  return c.json(checked(c.env, ListEventsOutput, { items: results.map(toAgentEvent) }));
+instructionRoutes.get("/:id/diff", async (c) => {
+  const row = await requireInstruction(c.env.DB, c.req.param("id"));
+  return c.json(checked(c.env, WorkspaceDiffSchema, await buildDiff(c.env.DB, row.id)));
 });
 
 /** アーカイブ前の状態（restore 用）。直近の「archived への遷移」の from */
@@ -110,61 +66,106 @@ instructionRoutes.post("/:id/transition", async (c) => {
   const db = c.env.DB;
   const id = c.req.param("id");
   const now = Date.now();
-  const inst = await getInstructionRow(db, id);
-  if (!inst) throw notFound("instruction not found");
-  if (inst.status !== input.expectedStatus) {
-    throw conflict("status changed", { status: inst.status });
-  }
+  const inst = await requireInstruction(db, id);
+  if (inst.status !== input.expectedStatus) throw conflict("status changed", { status: inst.status });
   const to = nextStatus(inst.status, input.action, input.action === "restore" ? await archivedFrom(db, id) : undefined);
   if (to === null) throw conflict("transition not allowed", { status: inst.status, action: input.action });
-  if (input.action === "send_back" && !input.comment?.trim()) throw invalid("comment is required for send_back");
+  const comment = input.comment?.trim() ?? "";
+  if (input.action === "send_back" && !comment) throw invalid("comment is required for send_back");
 
   const transitionId = newId();
-  const stmts = [ceoUpdate(db, inst, input.action, to, input.comment?.trim() ?? null, now)];
+  const stmts = [ceoUpdate(db, inst, input.action, to, comment || null, now)];
   stmts.push(transitionAfterUpdate(db, { id: transitionId, instructionId: id, from: inst.status, to, action: input.action, actor: "ceo", now }));
-  // 取消では未回答の判断も閉じる（再開したら必要なら聞き直す）
+  const applied = (sql: string) => `${sql} AND EXISTS (SELECT 1 FROM status_transitions WHERE id = '${transitionId}')`;
   if (input.action === "cancel") {
-    // 遷移が記録されたとき（＝取消が当たったとき）だけ閉じる
-    stmts.push(
-      db
-        .prepare("UPDATE decisions SET status = 'canceled' WHERE instruction_id = ? AND status = 'open' AND EXISTS (SELECT 1 FROM status_transitions WHERE id = ?)")
-        .bind(id, transitionId),
-    );
+    // 取消が当たったときだけ、未回答の判断と届けていない追加の依頼を閉じる
+    stmts.push(db.prepare(applied("UPDATE decisions SET status = 'canceled' WHERE instruction_id = ? AND status = 'open'")).bind(id));
+    stmts.push(db.prepare(applied("UPDATE session_inputs SET status = 'canceled' WHERE instruction_id = ? AND status = 'pending'")).bind(id));
   }
   const results = await db.batch(stmts);
   if (results[0]?.meta.changes !== 1) throw conflict("status changed");
 
-  const summary = (await getSummary(db, id))!;
-  const events: ServerEvent[] = [{ t: "instruction.upserted", instruction: summary }];
+  // 会話への反映（4.4）
+  const messageIds = await reflectInConversation(c.env, inst, input.action, comment, c.get("user").id, now);
+
+  const events = await instructionEvents(c.env, [id]);
   if (input.action === "cancel") {
-    const { results: canceled } = await db
-      .prepare("SELECT * FROM decisions WHERE instruction_id = ? AND status = 'canceled'")
-      .bind(id)
-      .all<DecisionRow>();
+    const { results: canceled } = await db.prepare("SELECT * FROM decisions WHERE instruction_id = ? AND status = 'canceled'").bind(id).all<DecisionRow>();
     for (const d of canceled) events.push({ t: "decision.upserted", decision: toDecision(d) });
   }
   await publish(c.env, events);
+  if (messageIds.length > 0) await afterMessages(c.env, messageIds, { push: false });
   await notifyRunners(c.env, runnerEventsFor(id, input.action, to));
+  const summary = (await getSummary(db, id))!;
   return c.json(checked(c.env, TransitionOutput, { instruction: summary, transitionId }));
 });
 
 /** CEO の操作 1 つ分の UPDATE（今の状態が変わっていないときだけ当たる） */
-function ceoUpdate(db: D1Database, inst: InstructionRow, action: string, to: InstructionStatus, comment: string | null, now: number) {
+function ceoUpdate(db: D1Database, inst: InstructionRow, action: CeoAction, to: InstructionStatus, comment: string | null, now: number) {
   const sets = ["status = ?", "status_changed_at = ?", "updated_at = ?"];
   const args: unknown[] = [to, now, now];
-  if (to === "done") sets.push("completed_at = ?"), args.push(now);
-  if (to === "queued" || to === "canceled") {
-    sets.push("lease_runner_id = NULL", "lease_expires_at = NULL");
-  }
-  if (to === "queued") sets.push("not_before = NULL");
+  if (to === "done") sets.push("completed_at = ?", "finalized_at = NULL"), args.push(now);
+  if (to === "queued" || to === "canceled") sets.push("lease_runner_id = NULL", "lease_expires_at = NULL");
+  if (to === "queued") sets.push("not_before = NULL", "phase = 'coo'", "error = NULL");
   if (action === "send_back") sets.push("feedback = ?"), args.push(comment);
-  return db
-    .prepare(`UPDATE instructions SET ${sets.join(", ")} WHERE id = ? AND status = ?`)
-    .bind(...args, inst.id, inst.status);
+  return db.prepare(`UPDATE instructions SET ${sets.join(", ")} WHERE id = ? AND status = ?`).bind(...args, inst.id, inst.status);
+}
+
+/** 承認・差し戻し・取消・再実行を COO・リーダーのスレッドに反映し、作った発言の ID を返す */
+async function reflectInConversation(
+  env: AppEnv["Bindings"],
+  inst: InstructionRow,
+  action: CeoAction,
+  comment: string,
+  userId: string,
+  now: number,
+): Promise<string[]> {
+  const db = env.DB;
+  const label = inst.title ?? inst.body.slice(0, 40);
+  const leaderThreadId = inst.project_id ? leaderThreadIdOf(inst.project_id) : null;
+  const leaderThread = leaderThreadId ? await getThread(db, leaderThreadId) : null;
+  const stmts: D1PreparedStatement[] = [];
+  const ids: string[] = [];
+  const notice = (threadId: string, body: string, kind: string) => {
+    const n = noticeStatements(db, threadId, body, { notice: kind }, inst.id, now);
+    stmts.push(...n.stmts);
+    ids.push(n.id);
+  };
+  const event = (threadId: string, wakes: boolean, text: string, type: string) => {
+    stmts.push(...inboxInsertStatements(db, { threadId, kind: "instruction_event", wakes, instructionId: inst.id, payload: { type, text } }, now).stmts);
+  };
+  switch (action) {
+    case "approve":
+      notice(COO_THREAD_ID, UI_TEXT_V2.notices.approve, "approve");
+      event(COO_THREAD_ID, false, `CEO が指示「${label}」を承認した`, "approved");
+      if (leaderThread) event(leaderThread.id, false, `CEO が指示「${label}」を承認した`, "approved");
+      break;
+    case "cancel":
+      notice(COO_THREAD_ID, UI_TEXT_V2.notices.cancel, "cancel");
+      event(COO_THREAD_ID, false, `CEO が指示「${label}」を取り消した`, "canceled");
+      if (leaderThread) {
+        notice(leaderThread.id, UI_TEXT_V2.notices.cancel, "cancel");
+        event(leaderThread.id, false, `CEO が指示「${label}」を取り消した`, "canceled");
+      }
+      break;
+    case "retry":
+      notice(COO_THREAD_ID, UI_TEXT_V2.notices.retry, "retry");
+      event(COO_THREAD_ID, true, `CEO が指示「${label}」の再実行を求めた`, "retry");
+      break;
+    case "send_back": {
+      // コメントは CEO の発言として COO スレッドへ（指示のカード付き）。COO のターン
+      await postCeoMessage(env, { threadId: COO_THREAD_ID, userId, clientId: null, body: comment, instructionId: inst.id, sendBack: true });
+      break;
+    }
+    default:
+      break;
+  }
+  if (stmts.length > 0) await db.batch(stmts);
+  return ids;
 }
 
 function runnerEventsFor(id: string, action: string, to: InstructionStatus): RunnerServerEvent[] {
   if (action === "cancel") return [{ t: "instruction.cancel", instructionId: id }];
-  if (to === "queued") return [{ t: "work.available" }];
+  if (to === "queued" || to === "done") return [{ t: "work.available" }];
   return [];
 }

@@ -1,7 +1,7 @@
-// GET /api/artifacts/:id（設計書 4.2）
+// GET /api/artifacts/:id（v1 設計書 4.2）
 import { Hono } from "hono";
 import { ArtifactSchema } from "@baton/shared";
-import { ARTIFACT_SELECT } from "../db/details.ts";
+import { ARTIFACT_SELECT } from "../db/detail.ts";
 import { toArtifact, type ArtifactRow } from "../db/rows.ts";
 import { notFound } from "../lib/errors.ts";
 import { checked } from "../lib/validate.ts";

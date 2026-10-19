@@ -3,3 +3,9 @@ E2E_TEST_SECRET=e2e-local-secret
 ALLOWED_EMAILS=ceo@example.com
 GOOGLE_CLIENT_ID=e2e-dummy
 GOOGLE_CLIENT_SECRET=e2e-dummy
+# Web Push（DESIGN-v2 10.3）。e2e だけで使うテスト用の鍵（本番には登録しない。本番は npm run push:keys -w app）
+VAPID_PUBLIC_KEY=BKtph3lHgfzgmSw96CXfaU3s_8bQtdxKZiV4gEgCPAIdVUPMlyStfa0-EctLKcS5O8dKxHeUt5GlCwnrGep7ld8
+VAPID_PRIVATE_KEY=nw7OIm-PeVRjO-GAWwpuOesTi1gYIsIcoKlsXZScOdc
+# 通知のまとめ（既定 15 秒）と会話の区切り（既定 15 分）を e2e では短く（DESIGN-v2 15.3）
+BATON_PUSH_BATCH_MS=1000
+BATON_CONVERSATION_BREAK_MS=3000
