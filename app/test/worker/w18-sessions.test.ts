@@ -156,6 +156,9 @@ describe("W20 追加の依頼", () => {
     const delivered = (await (await runner(r, `/api/runner/inputs/${input.id}/delivered`, { method: "POST" })).json()) as SessionInput;
     expect(delivered.status).toBe("delivered");
     expect(((await (await runner(r, `/api/runner/sessions/${sid}/inputs`)).json()) as { items: unknown[] }).items).toEqual([]);
+    // 終わった指示（claim で拾えない状態）のメンバーには送れない
+    await env.DB.prepare("UPDATE instructions SET status = 'done' WHERE id = ?").bind(a.id).run();
+    expect((await browser(s, `/api/sessions/${sid}/messages`, { body: { clientId: crypto.randomUUID(), body: "x" } })).status).toBe(409);
     const coo = await createSession(r, { threadId: "thread-coo", role: "coo" });
     expect((await browser(s, `/api/sessions/${coo}/messages`, { body: { clientId: crypto.randomUUID(), body: "x" } })).status).toBe(400);
   });

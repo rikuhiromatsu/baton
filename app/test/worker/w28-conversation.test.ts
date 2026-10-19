@@ -311,6 +311,10 @@ describe("W33 claim（スレッド）", () => {
     await env.DB.prepare("UPDATE threads SET lease_expires_at = ? WHERE id = 'thread-coo'").bind(Date.now() - 1).run();
     const again = await claimThread(r2);
     expect(again.inbox.map((x) => x.payload.body)).toEqual(["二つ目（ターン中）"]);
+    // 取り上げられた側のターンの終わりは何も消化しない（409）
+    const stale = await runner(r, "/api/runner/threads/thread-coo/turn-done", { body: { consumedInboxIds: again.inbox.map((x) => x.id), awaitingReply: false, ackMessageIds: [], sessionId: crypto.randomUUID() } });
+    expect(stale.status).toBe(409);
+    expect((await env.DB.prepare("SELECT status FROM thread_inbox WHERE id = ?").bind(again.inbox[0]!.id).first())?.status).toBe("pending");
   });
 
   it("会話の区切り: リーダーのスレッドを離れたら、未報告の CEO の発言があるときだけ区切りを入れる", async () => {

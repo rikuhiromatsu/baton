@@ -195,22 +195,24 @@ runnerThreadRoutes.post("/threads/:id/turn-done", async (c) => {
   assertHeld(thread, runnerId);
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
+  // どの書き込みも、このランナーが今もターンを回しているときだけ当たる（途中で取り直されたら何も変えない）
+  const held = `EXISTS (SELECT 1 FROM threads h WHERE h.id = '${thread.id.replaceAll("'", "''")}' AND h.lease_runner_id = '${runnerId.replaceAll("'", "''")}' AND h.status = 'running')`;
   if (input.consumedInboxIds.length > 0) {
     stmts.push(
       db
-        .prepare(`UPDATE thread_inbox SET status = 'consumed', consumed_at = ? WHERE thread_id = ? AND status = 'pending' AND id IN (${ph(input.consumedInboxIds)})`)
+        .prepare(`UPDATE thread_inbox SET status = 'consumed', consumed_at = ? WHERE thread_id = ? AND status = 'pending' AND id IN (${ph(input.consumedInboxIds)}) AND ${held}`)
         .bind(now, thread.id, ...input.consumedInboxIds),
     );
   }
   if (input.ackMessageIds.length > 0) {
     stmts.push(
       db
-        .prepare(`UPDATE thread_messages SET reaction = 'ack', updated_at = ? WHERE thread_id = ? AND author_kind = 'ceo' AND id IN (${ph(input.ackMessageIds)})`)
+        .prepare(`UPDATE thread_messages SET reaction = 'ack', updated_at = ? WHERE thread_id = ? AND author_kind = 'ceo' AND id IN (${ph(input.ackMessageIds)}) AND ${held}`)
         .bind(now, thread.id, ...input.ackMessageIds),
     );
   }
   if (input.numTurns > 0) {
-    stmts.push(db.prepare("UPDATE agent_sessions SET turns = turns + ?, updated_at = ? WHERE id = ? AND thread_id = ?").bind(input.numTurns, now, input.sessionId, thread.id));
+    stmts.push(db.prepare(`UPDATE agent_sessions SET turns = turns + ?, updated_at = ? WHERE id = ? AND thread_id = ? AND ${held}`).bind(input.numTurns, now, input.sessionId, thread.id));
   }
   stmts.push(
     db

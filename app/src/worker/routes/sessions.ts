@@ -66,7 +66,8 @@ sessionRoutes.post("/:id/messages", async (c) => {
   const session = await requireAgentSession(db, c.req.param("id"));
   if (session.role !== "member" || !session.instruction_id) throw invalid("follow-ups go to member sessions only");
   const inst = await db.prepare("SELECT status FROM instructions WHERE id = ?").bind(session.instruction_id).first<{ status: string }>();
-  if (!inst || ["canceled", "archived"].includes(inst.status)) throw conflict("instruction is closed", { status: inst?.status });
+  // 届けられる（claim で拾える）状態の指示だけ受け付ける。終わった指示はリーダーとの会話で再開する
+  if (!inst || !["running", "needs_decision", "review"].includes(inst.status)) throw conflict("instruction is not active", { status: inst?.status });
   const now = Date.now();
   const id = newId();
   await db
