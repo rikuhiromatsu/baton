@@ -1302,7 +1302,7 @@ plist（`runner/launchd/com.rikuhiromatsu.baton-runner.plist.template`）:
 すべて Mac mini で、wrangler の既存 OAuth（workers/kv/d1/routes の write）で実行できる。
 
 1. `cd app && npx wrangler d1 create baton` → 出力の `database_id` を `wrangler.jsonc` に書く
-2. シークレット登録: `npx wrangler secret put GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `ALLOWED_EMAILS`（`r.hiromatsu.work@gmail.com`）
+2. シークレット登録: `npx wrangler secret put GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `ALLOWED_EMAILS`（本人のメールアドレス）
 3. `npm run deploy`（ルート。テスト用ルートの混入検査 → ビルド → リモートのマイグレーション → `wrangler deploy` → 本番スモーク）
 4. `scripts/setup-mini.sh`
 5. GitHub: `gh repo create rikuhiromatsu/baton --public --source . --push`（公開範囲は本人の指示どおり公開。シークレットはリポジトリに入れない）
@@ -1315,7 +1315,7 @@ plist（`runner/launchd/com.rikuhiromatsu.baton-runner.plist.template`）:
 |---|---|---|---|
 | `GOOGLE_CLIENT_ID` | Worker シークレット、`app/.dev.vars` | Google OAuth クライアント ID | 本人（Google Cloud Console） |
 | `GOOGLE_CLIENT_SECRET` | 同上 | 同シークレット | 本人 |
-| `ALLOWED_EMAILS` | 同上 | `r.hiromatsu.work@gmail.com`（カンマ区切り） | 実装エージェント |
+| `ALLOWED_EMAILS` | 同上 | 本人のメールアドレス（カンマ区切り） | 実装エージェント |
 | `E2E_TEST_SECRET` | `app/.dev.vars.e2e`、CI の環境変数（固定のダミー値でよい） | 乱数 | 実装エージェント。本番には登録しない |
 | `BATON_ENV`・`APP_ORIGIN` | `wrangler.jsonc` の vars / `.dev.vars` | 環境名・オリジン | 実装エージェント |
 | `MODEL_COO`・`MODEL_LEADER`・`MODEL_MEMBER`・`MODEL_UTIL`（任意） | `wrangler.jsonc` の vars | モデルの上書き | — |

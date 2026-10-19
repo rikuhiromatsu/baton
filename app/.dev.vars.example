@@ -3,4 +3,4 @@ BATON_ENV=development
 APP_ORIGIN=http://localhost:8790
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-ALLOWED_EMAILS=r.hiromatsu.work@gmail.com
+ALLOWED_EMAILS=you@example.com

@@ -678,7 +678,7 @@ export class MockBackend {
 
     if (path === API_PATHS.session) {
       const s: SessionInfo = {
-        user: { id: "u1", email: "r.hiromatsu.work@gmail.com", name: "Riku Hiromatsu", pictureUrl: null },
+        user: { id: "u1", email: "ceo@example.com", name: "CEO", pictureUrl: null },
         csrfToken: this.csrf,
         runner: this.runner,
         env: "development",
