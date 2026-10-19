@@ -61,7 +61,7 @@ export function parseAllowedTools(skillMd: string): string[] {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skillMd);
   if (!m) return [];
   const fm = m[1] ?? "";
-  const line = /^allowed-tools:\s*(.*)$/m.exec(fm);
+  const line = /^allowed-tools:[ \t]*(.*)$/m.exec(fm);
   if (!line) return [];
   const value = (line[1] ?? "").trim();
   if (value.startsWith("[")) {
@@ -73,7 +73,7 @@ export function parseAllowedTools(skillMd: string): string[] {
   }
   if (value === "") {
     // YAML の配列（- 項目）
-    const after = fm.slice((line.index ?? 0) + line[0].length).split(/\r?\n/);
+    const after = fm.slice((line.index ?? 0) + line[0].length).split(/\r?\n/).slice(1);
     const out: string[] = [];
     for (const l of after) {
       const item = /^\s*-\s*(.+)$/.exec(l);

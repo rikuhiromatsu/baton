@@ -201,8 +201,12 @@ export function deniedBy(rule: string, deny: readonly string[] = COMMON_DENY): s
     const rm = /^(\w+)(?:\((.*)\))?$/.exec(norm);
     if (!dm || !rm) continue;
     if (dm[1] !== rm[1]) continue;
-    // ルールに引数が無い（Bash 全体の許可）は、その道具の拒否すべてに当たる
-    if (rm[2] === undefined) return d;
+    // 引数の無い Bash（Bash 全体の前もっての許可）は、Bash の拒否すべてに当たる。
+    // Read などは deny が先に評価されるので、全体の許可でも拒否は崩れない
+    if (rm[2] === undefined) {
+      if (rm[1] === "Bash") return d;
+      continue;
+    }
     const dPrefix = (dm[2] ?? "").replace(/\s*\*+$/, "").replace(/\/\*\*$/, "");
     const rPrefix = rm[2].replace(/\s*\*+$/, "").replace(/\/\*\*$/, "");
     if (rPrefix === dPrefix || rPrefix.startsWith(`${dPrefix} `) || rPrefix.startsWith(`${dPrefix}/`) || dPrefix.startsWith(rPrefix)) return d;
