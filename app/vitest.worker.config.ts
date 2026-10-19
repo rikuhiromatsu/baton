@@ -31,6 +31,8 @@ export default defineConfig({
       return {
         wrangler: { configPath: "./wrangler.jsonc", environment: "e2e" },
         miniflare: {
+          // W26 用: 0001 → v1 の形のデータ → 0002 を順に当てる空の D1
+          d1Databases: { MIGRATION_DB: "migration-test" },
           // .dev.vars.e2e は git 管理外なので、CI でも同じ値になるようここで与える
           bindings: {
             TEST_MIGRATIONS: migrations,
