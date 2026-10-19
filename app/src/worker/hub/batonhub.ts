@@ -41,7 +41,10 @@ const PUSH_PENDING_KEY = "pushPending";
 const INTERRUPTS_KEY = "interrupts";
 const INTERRUPT_TTL_MS = 5 * 60 * 1000;
 
-type Interrupts = { threads: Record<string, number>; sessions: Record<string, number> };
+/** 中断の依頼（id → 依頼の時刻と ID。古い形は時刻だけ） */
+type InterruptEntry = number | { at: number; requestId: string };
+type Interrupts = { threads: Record<string, InterruptEntry>; sessions: Record<string, InterruptEntry> };
+export type InterruptRequest = { kind: "thread" | "session"; id: string; requestId: string };
 
 export class BatonHub extends DurableObject<Env> {
   private queue: ServerEvent[] = [];
@@ -191,17 +194,30 @@ export class BatonHub extends DurableObject<Env> {
 
   // ───────────── 中断の依頼（ハートビートの応答で返す。12.3） ─────────────
 
-  async addInterrupt(kind: "thread" | "session", id: string): Promise<void> {
+  async addInterrupt(kind: "thread" | "session", id: string): Promise<string> {
     const cur = (await this.ctx.storage.get<Interrupts>(INTERRUPTS_KEY)) ?? { threads: {}, sessions: {} };
-    (kind === "thread" ? cur.threads : cur.sessions)[id] = Date.now();
+    const requestId = crypto.randomUUID();
+    (kind === "thread" ? cur.threads : cur.sessions)[id] = { at: Date.now(), requestId };
     await this.ctx.storage.put(INTERRUPTS_KEY, cur);
+    return requestId;
   }
 
-  async takeInterrupts(): Promise<{ threadIds: string[]; sessionIds: string[] }> {
+  async takeInterrupts(): Promise<{ threadIds: string[]; sessionIds: string[]; requests: InterruptRequest[] }> {
     const cur = (await this.ctx.storage.get<Interrupts>(INTERRUPTS_KEY)) ?? { threads: {}, sessions: {} };
     await this.ctx.storage.delete(INTERRUPTS_KEY);
-    const fresh = (m: Record<string, number>) => Object.entries(m).filter(([, at]) => Date.now() - at <= INTERRUPT_TTL_MS).map(([id]) => id);
-    return { threadIds: fresh(cur.threads), sessionIds: fresh(cur.sessions) };
+    const requests: InterruptRequest[] = [];
+    const fresh = (kind: InterruptRequest["kind"], m: Record<string, InterruptEntry>) =>
+      Object.entries(m)
+        .filter(([id, e]) => {
+          const at = typeof e === "number" ? e : e.at;
+          if (Date.now() - at > INTERRUPT_TTL_MS) return false;
+          requests.push({ kind, id, requestId: typeof e === "number" ? `legacy-${at}` : e.requestId });
+          return true;
+        })
+        .map(([id]) => id);
+    const threadIds = fresh("thread", cur.threads);
+    const sessionIds = fresh("session", cur.sessions);
+    return { threadIds, sessionIds, requests };
   }
 
   // ───────────── 秘書 bot のレート制限（11.6。トークンごとに 60 回／分、メモリで数える） ─────────────

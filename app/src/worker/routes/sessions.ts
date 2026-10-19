@@ -86,8 +86,8 @@ sessionRoutes.post("/:id/messages", async (c) => {
 
 sessionRoutes.post("/:id/interrupt", async (c) => {
   const session = await requireAgentSession(c.env.DB, c.req.param("id"));
-  await hubStub(c.env).addInterrupt("session", session.id);
-  await notifyRunners(c.env, [{ t: "session.interrupt", sessionId: session.id }]);
+  const requestId = await hubStub(c.env).addInterrupt("session", session.id);
+  await notifyRunners(c.env, [{ t: "session.interrupt", sessionId: session.id, requestId }]);
   return c.body(null, 202);
 });
 

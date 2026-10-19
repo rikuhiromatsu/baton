@@ -108,6 +108,7 @@ runnerControlRoutes.post("/heartbeat", async (c) => {
       cancelInstructionIds,
       interruptSessionIds: interrupts.sessionIds,
       interruptThreadIds: interrupts.threadIds,
+      interruptRequests: interrupts.requests,
     }),
   );
 });

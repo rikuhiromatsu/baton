@@ -71,8 +71,8 @@ threadRoutes.post("/:id/leave", async (c) => {
 
 threadRoutes.post("/:id/interrupt", async (c) => {
   const thread = await requireThread(c.env.DB, c.req.param("id"));
-  await hubStub(c.env).addInterrupt("thread", thread.id);
-  await notifyRunners(c.env, [{ t: "thread.interrupt", threadId: thread.id }]);
+  const requestId = await hubStub(c.env).addInterrupt("thread", thread.id);
+  await notifyRunners(c.env, [{ t: "thread.interrupt", threadId: thread.id, requestId }]);
   return c.body(null, 202);
 });
 

@@ -32,10 +32,8 @@ export class Scheduler {
   private heartbeatAgain = false;
   private stopping = false;
   private unsubscribeQuota: (() => void) | null = null;
-  /** WebSocket で受けて行った中断（id → 時刻）。同じ要求がハートビートの応答でもう一度届くので見分ける */
-  private readonly wsInterrupts = new Map<string, number>();
-  /** 直前のハートビートを送り始めた時刻（Hub の中断の控えはそこで取り出され、空になっている） */
-  private lastHeartbeatStartedAt = 0;
+  /** WebSocket で受けて行った中断の依頼の ID（→ 受けた時刻）。同じ依頼がハートビートの応答でもう一度届くので見分ける */
+  private readonly handledInterrupts = new Map<string, number>();
   private readonly lifecycle = new AbortController();
   lastHeartbeatAt: number | null = null;
   lastClaimError: string | null = null;
@@ -93,11 +91,11 @@ export class Scheduler {
         this.poke();
         break;
       case "thread.interrupt":
-        this.wsInterrupts.set(`thread:${e.threadId}`, Date.now());
+        if (e.requestId) this.handledInterrupts.set(e.requestId, Date.now());
         this.ctx.threads.interrupt(e.threadId);
         break;
       case "session.interrupt":
-        this.wsInterrupts.set(`session:${e.sessionId}`, Date.now());
+        if (e.requestId) this.handledInterrupts.set(e.requestId, Date.now());
         this.interruptSession(e.sessionId);
         break;
       case "session.input":
@@ -228,9 +226,6 @@ export class Scheduler {
     }
     this.heartbeating = true;
     this.heartbeatAgain = false;
-    const startedAt = Date.now();
-    const since = this.lastHeartbeatStartedAt;
-    this.lastHeartbeatStartedAt = startedAt;
     try {
       const profiles = await this.ctx.profiles().catch(() => null);
       const out = await this.ctx.api.heartbeat(
@@ -250,12 +245,20 @@ export class Scheduler {
       this.lastHeartbeatAt = Date.now();
       for (const id of out.cancelInstructionIds) this.cancel(id);
       // 中断は WebSocket と、取りこぼし用の Hub の控え（ハートビートで取り出す）の両方で届く。
-      // 前回のハートビートより後に WebSocket で同じ相手を中断していれば、それと同じ要求なので行わない
-      // （行うと、中断のあとに始まった次のターン・再開したメンバーを止めてしまう）
-      const fresh = (key: string) => (this.wsInterrupts.get(key) ?? -1) < since;
-      for (const id of out.interruptSessionIds) if (fresh(`session:${id}`)) this.interruptSession(id);
-      for (const id of out.interruptThreadIds) if (fresh(`thread:${id}`)) this.ctx.threads.interrupt(id);
-      for (const [key, at] of this.wsInterrupts) if (at < since) this.wsInterrupts.delete(key);
+      // WebSocket で受けて行った依頼（同じ requestId）は行わない（行うと、中断のあとに始まった次のターン・再開したメンバーを止めてしまう）
+      if (out.interruptRequests) {
+        for (const r of out.interruptRequests) {
+          if (this.handledInterrupts.has(r.requestId)) continue;
+          if (r.kind === "session") this.interruptSession(r.id);
+          else this.ctx.threads.interrupt(r.id);
+        }
+      } else {
+        for (const id of out.interruptSessionIds) this.interruptSession(id);
+        for (const id of out.interruptThreadIds) this.ctx.threads.interrupt(id);
+      }
+      // 控えは 5 分で消えるので、覚えておくのもそれより少し長く
+      const old = Date.now() - 10 * 60_000;
+      for (const [id, at] of this.handledInterrupts) if (at < old) this.handledInterrupts.delete(id);
     } catch (err) {
       if (!this.stopping) this.ctx.log.warn("ハートビートに失敗", { error: errorMessage(err) });
     } finally {

@@ -268,9 +268,16 @@ describe("W22 中断", () => {
       quota: { observedAt: null, fiveHour: { utilization: null, resetsAt: null }, sevenDay: { utilization: null, resetsAt: null }, status: "unknown", rejectedType: null, blockedUntil: null, paused: false },
       claudeVersion: "2.1.303", claudeAuth: "ok", profiles: [],
     };
-    const out = (await (await runner(r, "/api/runner/heartbeat", { body: hb })).json()) as { interruptThreadIds: string[]; interruptSessionIds: string[] };
+    const out = (await (await runner(r, "/api/runner/heartbeat", { body: hb })).json()) as {
+      interruptThreadIds: string[];
+      interruptSessionIds: string[];
+      interruptRequests?: { kind: string; id: string; requestId: string }[];
+    };
     expect(out.interruptThreadIds).toEqual(["thread-coo"]);
     expect(out.interruptSessionIds).toEqual([sid]);
+    // 依頼ごとの ID（WebSocket の requestId と同じ。ランナーが二度行わないため）
+    expect(out.interruptRequests?.map((x) => [x.kind, x.id]).sort()).toEqual([["session", sid], ["thread", "thread-coo"]]);
+    expect(out.interruptRequests?.every((x) => x.requestId.length > 0)).toBe(true);
     const again = (await (await runner(r, "/api/runner/heartbeat", { body: hb })).json()) as { interruptThreadIds: string[]; interruptSessionIds: string[] };
     expect(again.interruptThreadIds).toEqual([]);
     expect(again.interruptSessionIds).toEqual([]);

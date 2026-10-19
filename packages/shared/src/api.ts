@@ -404,6 +404,8 @@ export const HeartbeatOutput = z.object({
   cancelInstructionIds: z.array(z.string()),
   interruptSessionIds: z.array(z.string()),
   interruptThreadIds: z.array(z.string()),
+  /** 上の 2 つと同じ中断の依頼を、依頼ごとの ID 付きで（WebSocket の thread.interrupt・session.interrupt の requestId と同じ。二度行わないため） */
+  interruptRequests: z.array(z.object({ kind: z.enum(["thread", "session"]), id: z.string(), requestId: z.string() })).optional(),
 });
 export type HeartbeatOutput = z.infer<typeof HeartbeatOutput>;
 

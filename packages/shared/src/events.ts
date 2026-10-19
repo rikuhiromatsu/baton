@@ -82,9 +82,9 @@ export const RunnerServerEventSchema = z.discriminatedUnion("t", [
   // v2（12.5）
   /** ターン中のスレッドに CEO の発言が来た（動いているプロセスの標準入力に流す。4.5） */
   z.object({ t: z.literal("thread.input"), threadId: z.string(), inboxId: z.string() }),
-  z.object({ t: z.literal("thread.interrupt"), threadId: z.string() }),
+  z.object({ t: z.literal("thread.interrupt"), threadId: z.string(), requestId: z.string().optional() }),
   z.object({ t: z.literal("session.input"), sessionId: z.string(), inputId: z.string() }),
-  z.object({ t: z.literal("session.interrupt"), sessionId: z.string() }),
+  z.object({ t: z.literal("session.interrupt"), sessionId: z.string(), requestId: z.string().optional() }),
   z.object({ t: z.literal("repos.rescan") }),
 ]);
 export type RunnerServerEvent = z.infer<typeof RunnerServerEventSchema>;
