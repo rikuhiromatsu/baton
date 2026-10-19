@@ -1,5 +1,5 @@
 // 指示入力（7.4・7.5）。index.html の #boot-composer の値・選択範囲・フォーカスを引き継いで置き換える
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { TESTIDS, UI_TEXT } from "@baton/shared";
@@ -50,7 +50,10 @@ export function Composer() {
   const bubble = useUi((s) => s.bubble);
   const ref = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const sentByPointer = useRef(false);
   const canSend = text.trim().length > 0 && text.trim().length <= MAX_CHARS;
+  // 埋め込みの入力欄で打っている間（iOS）は、こちらを隠して二重に見せない
+  const [bootActive, setBootActive] = useState(false);
 
   const resize = useCallback(() => {
     const el = ref.current;
@@ -70,6 +73,8 @@ export function Composer() {
     // 入力欄の泡 → 一覧のカード（layoutId）。泡を 1 フレーム描いてからカードを差し込む
     useUi.getState().setBubble({ clientId, text: body.trim() });
     useDraft.getState().clear();
+    // 埋め込みの入力欄から引き継いだ直後は DOM に直接値を入れているので、React の描き直しに任せず空にする
+    if (ref.current) ref.current.value = "";
     await nextFrame();
     submitInstruction(qc, body, Date.now(), clientId);
     useUi.getState().setBubble(null);
@@ -82,14 +87,20 @@ export function Composer() {
     composerEl = el;
     const boot = getBootComposer();
     let cleanup: (() => void) | undefined;
+    let adopting = false;
     const adopt = () => {
+      // 取り除く途中で blur が起き、もう一度ここに入ることがある（二重に remove すると例外になる）
+      if (adopting) return;
       const b = getBootComposer();
       if (!b) return;
+      adopting = true;
       const st = readBootComposer(b);
       const merged = st.value || useDraft.getState().text;
       if (merged !== useDraft.getState().text) setText(merged);
       el.value = merged;
+      cleanup?.();
       removeBootComposer();
+      setBootActive(false);
       if (st.focused) {
         el.focus({ preventScroll: true });
         try {
@@ -103,18 +114,40 @@ export function Composer() {
     if (boot && document.activeElement === boot && isTouchDevice()) {
       // iOS は focus() でキーボードを出し直せないので、打っている間は埋め込みのまま使い、離れたら引き継ぐ
       const bootSend = document.getElementById(BOOT_SEND_ID);
-      const onBlur = () => adopt();
+      // 送信ボタンを押している間に入力欄のフォーカスが外れても、ここでは引き継がない。
+      // 引き継ぐと送信ボタンごと消えて click が届かない（送信は onSend が引き継ぎと一緒に行う）
+      let pressingSend = false;
+      const onPressSend = (e: Event) => {
+        pressingSend = true;
+        e.preventDefault();
+      };
+      const onBlur = () => {
+        if (pressingSend) return;
+        adopt();
+      };
+      let sent = false;
       const onSend = (e: Event) => {
         e.preventDefault();
+        if (e.type === "pointerup" && (e as PointerEvent).pointerType === "mouse") return;
+        if (sent) return;
+        sent = true;
+        pressingSend = false;
         const b = getBootComposer();
         if (b) setText(b.value);
         adopt();
         void send();
       };
-      boot.addEventListener("blur", onBlur, { once: true });
-      bootSend?.addEventListener("click", onSend, { once: true });
+      setBootActive(true);
+      boot.addEventListener("blur", onBlur);
+      bootSend?.addEventListener("pointerdown", onPressSend);
+      bootSend?.addEventListener("mousedown", onPressSend);
+      bootSend?.addEventListener("pointerup", onSend);
+      bootSend?.addEventListener("click", onSend);
       cleanup = () => {
         boot.removeEventListener("blur", onBlur);
+        bootSend?.removeEventListener("pointerdown", onPressSend);
+        bootSend?.removeEventListener("mousedown", onPressSend);
+        bootSend?.removeEventListener("pointerup", onSend);
         bootSend?.removeEventListener("click", onSend);
       };
     } else if (boot) {
@@ -179,7 +212,12 @@ export function Composer() {
   };
 
   return (
-    <div className="composer-wrap" ref={wrapRef}>
+    <div
+      className="composer-wrap"
+      ref={wrapRef}
+      style={bootActive ? { visibility: "hidden" } : undefined}
+      aria-hidden={bootActive || undefined}
+    >
       {bubble && (
         <motion.div layoutId={`card-${bubble.clientId}`} className="composer-bubble glass glass--card" transition={spring.gentle}>
           <span className="composer-bubble__text">{bubble.text}</span>
@@ -189,7 +227,7 @@ export function Composer() {
         <textarea
           ref={ref}
           className="composer__input"
-          data-testid={TESTIDS.composerInput}
+          data-testid={bootActive ? undefined : TESTIDS.composerInput}
           aria-label={UI_TEXT.composerAria}
           rows={1}
           value={text}
@@ -203,14 +241,27 @@ export function Composer() {
         <motion.button
           type="button"
           className="composer__send"
-          data-testid={TESTIDS.composerSend}
+          data-testid={bootActive ? undefined : TESTIDS.composerSend}
           aria-label={UI_TEXT.sendAria}
           disabled={!canSend}
           data-ready={canSend ? "true" : "false"}
           whileTap={{ scale: 0.9 }}
           transition={spring.pop}
           onPointerDown={(e) => e.preventDefault()}
-          onClick={() => void send()}
+          onPointerUp={(e) => {
+            // pointerdown の preventDefault（キーボードを閉じないため）で、WebKit はタッチの click を出さない。
+            // タッチは指を離した時点で送り、続く click（出る環境もある）は無視する
+            if (e.pointerType === "mouse") return;
+            sentByPointer.current = true;
+            void send();
+          }}
+          onClick={() => {
+            if (sentByPointer.current) {
+              sentByPointer.current = false;
+              return;
+            }
+            void send();
+          }}
         >
           <IconArrowUp size={20} />
         </motion.button>

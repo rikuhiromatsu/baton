@@ -18,6 +18,11 @@ export type SwipeOptions = {
   dy?: number;
   /** 既定はブラウザと端末から自動で選ぶ */
   mode?: SwipeMode;
+  /**
+   * move の回数（既定 8）。headless Chromium は CDP のタッチを約 20ms おきにしか届けないので、
+   * 速いフリックを作るときは回数を減らす
+   */
+  moves?: number;
   /** 各 move の直後に呼ぶ（動いている途中のカードの位置を測るため） */
   onStep?: (step: number) => Promise<void>;
 };
@@ -54,25 +59,30 @@ export async function swipeCard(
   const startX = direction === "right" ? box.x + Math.min(24, box.width * 0.1) : Math.min(box.x + box.width, maxX) - Math.min(24, box.width * 0.1);
   const startY = box.y + box.height / 2;
   const dy = options.dy ?? 0;
-  const points = Array.from({ length: MOVES }, (_, i) => {
-    const t = (i + 1) / MOVES;
+  const moves = options.moves ?? MOVES;
+  const points = Array.from({ length: moves }, (_, i) => {
+    const t = (i + 1) / moves;
     return { x: clamp(startX + sign * options.distance * t, 1, maxX), y: clamp(startY + dy * t, 1, maxY) };
   });
-  const stepMs = options.durationMs / (MOVES + 1);
+  const stepMs = options.durationMs / (moves + 1);
   const mode = options.mode ?? (await detectSwipeMode(page));
 
   if (mode === "cdp-touch") {
     const cdp = await page.context().newCDPSession(page);
     try {
       const touch = (x: number, y: number) => [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }];
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touch(startX, startY) });
+      // CDP は届くまでに 40〜60ms かかることがあり、並列実行では速さが再現できない。
+      // timestamp（秒）を指定して、イベントの時刻を指の動きどおりにする
+      const base = Date.now() / 1000;
+      const at = (i: number) => base + (i * stepMs) / 1000;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touch(startX, startY), timestamp: at(0) });
       for (const [i, p] of points.entries()) {
         await sleep(stepMs);
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touch(p.x, p.y) });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touch(p.x, p.y), timestamp: at(i + 1) });
         await options.onStep?.(i);
       }
       await sleep(stepMs);
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [], timestamp: at(points.length + 1) });
     } finally {
       await cdp.detach().catch(() => {});
     }

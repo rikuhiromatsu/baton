@@ -7,12 +7,13 @@
 // 補足（設計に無い分の決め）:
 //   - 振り分け済みでもプロジェクトもタスクも無い（answer_directly の後の差し戻しなど）→ 段階 1 からやり直す
 //   - 全部終わっているのに差し戻しコメントがある（review → 差し戻し）→ 最新ラウンドのまとめ（段階 4）からやり直す
+//   - work がすべて失敗・取消で終わっている（failed からの再実行）→ それらを pending に戻して段階 3 からやり直す
 import type { RunnerInstructionState, Task } from "@baton/shared";
 
 export type ResumePoint =
   | { stage: "route" }
   | { stage: "plan"; round: number }
-  | { stage: "work"; round: number }
+  | { stage: "work"; round: number; retryFailed?: boolean }
   | { stage: "review"; round: number; reopen: boolean }
   | { stage: "final"; round: number };
 
@@ -34,6 +35,8 @@ export function decideResume(state: RunnerInstructionState): ResumePoint {
   const works = tasks.filter((t) => t.kind === "work" && t.round === round);
   if (works.length === 0) return { stage: "plan", round };
   if (works.some((t) => !isFinished(t))) return { stage: "work", round };
+  // 1 件も成功していない（全部 failed / canceled）なら、まとめに進まず作業をやり直す
+  if (works.every((t) => t.status !== "done")) return { stage: "work", round, retryFailed: true };
 
   const review = tasks.find((t) => t.kind === "review" && t.round === round);
   if (!review || review.status !== "done") return { stage: "review", round, reopen: false };

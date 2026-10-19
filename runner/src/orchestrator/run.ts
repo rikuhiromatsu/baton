@@ -48,6 +48,11 @@ async function orchestrate(ctx: RunContext, start: ResumePoint): Promise<void> {
         point = { stage: "work", round: point.round };
         break;
       case "work":
+        if (point.retryFailed) {
+          for (const t of ctx.workTasks(point.round)) {
+            if (t.status === "failed" || t.status === "canceled") await ctx.patchTask(t.id, { status: "pending", resultSummary: null });
+          }
+        }
         await runWorkStage(ctx, point.round);
         point = { stage: "review", round: point.round, reopen: false };
         break;

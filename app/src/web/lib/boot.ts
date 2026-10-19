@@ -27,9 +27,13 @@ export function readBootComposer(el: HTMLTextAreaElement): BootComposerState {
 }
 
 export function removeBootComposer(): void {
-  const wrap = document.getElementById(BOOT_COMPOSER_WRAP_ID);
-  if (wrap) wrap.remove();
-  else getBootComposer()?.remove();
+  const el = document.getElementById(BOOT_COMPOSER_WRAP_ID) ?? getBootComposer();
+  if (!el?.isConnected) return;
+  try {
+    el.remove();
+  } catch {
+    // blur の中で既に外されていた
+  }
 }
 
 /**

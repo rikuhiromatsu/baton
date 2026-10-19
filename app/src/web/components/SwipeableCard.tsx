@@ -1,6 +1,6 @@
 // フリックできる指示カード（設計書 7.6）。判定は decideSwipe（純粋関数）に任せる
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion, useTransform } from "motion/react";
+import { animate, motion, useIsPresent, useMotionValue, useMotionValueEvent, useReducedMotion, useTransform } from "motion/react";
 
 /** 下地は、カードがどいた分（＋角丸の分）だけ見せる。半透明のカード越しに色が透けないように */
 const UNDERLAY_OVERLAP = 24;
@@ -25,6 +25,7 @@ import { collapseTween, easeOut, spring } from "../motion/tokens.ts";
 import { useOutbox } from "../state/outbox.ts";
 import { useUi } from "../state/ui.ts";
 import { ActionIcon, IconClock } from "./Icons.tsx";
+import { useGroupExiting } from "./groupExiting.ts";
 
 const LONG_PRESS_MS = 520;
 
@@ -86,6 +87,11 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const [flown, setFlown] = useState(false);
+  // 別のまとまりへ移るときの抜け殻。共有要素（layoutId）から外して、すぐ消えるようにする。
+  // 外さないと、同じ layoutId の新しいカードと組になって抜け殻が残り続ける
+  const selfPresent = useIsPresent();
+  const groupExiting = useGroupExiting();
+  const isPresent = selfPresent && !groupExiting;
   const [crossedDir, setCrossedDir] = useState<SwipeDirection | null>(null);
   const [popKey, setPopKey] = useState(0);
   const outboxState = useOutbox((s) => s.items[item.clientId]?.state);
@@ -362,7 +368,9 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     <motion.li
       className="card-slot"
       layout="position"
-      layoutId={flown ? undefined : `card-${item.clientId}`}
+      layoutId={flown || !isPresent ? undefined : `card-${item.clientId}`}
+      aria-hidden={isPresent ? undefined : true}
+      style={isPresent ? undefined : { pointerEvents: "none" }}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0, transition: { ...spring.gentle, delay: enterDelay } }}
       exit={flown ? { height: 0, marginBottom: 0, opacity: 0, transition: collapseTween } : { opacity: 0, transition: { duration: 0 } }}
@@ -375,8 +383,8 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
         ref={cardRef}
         className="card glass glass--card"
         style={{ x }}
-        data-testid={TESTIDS.instructionCard}
-        data-id={item.id}
+        data-testid={isPresent ? TESTIDS.instructionCard : undefined}
+        data-id={isPresent ? item.id : undefined}
         data-status={item.status}
         data-local={isLocal ? (outboxState ?? "") : undefined}
         data-failed-send={failedSend ? "true" : undefined}

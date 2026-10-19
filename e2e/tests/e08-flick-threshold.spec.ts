@@ -24,8 +24,9 @@ test("E8 しきい値未満のフリックは戻り、50px の速いフリック
   expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0)), "カードが元の位置に戻る").toBeLessThan(2);
   expect(await api.status(instruction.id)).toBe("review");
 
-  // 速い: 50px を約 32ms（1,500px/s 前後）。距離 40px 以上かつ 800px/s 以上で確定する
-  await swipeCard(page, card, "right", { distance: 50, durationMs: 32 });
+  // 速い: 50px を 1 回の動きで（headless Chromium はタッチを 40〜60ms おきにしか届けないため、分けると 800px/s に届かない）。
+  // 距離 40px 以上かつ 800px/s 以上で確定する
+  await swipeCard(page, card, "right", { distance: 50, durationMs: 32, moves: 2 });
   await expect(card).toHaveAttribute("data-status", "done");
   await api.waitForStatus(instruction.id, "done", 10_000);
 });

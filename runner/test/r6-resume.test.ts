@@ -138,5 +138,8 @@ describe("R6 再開", () => {
     expect(decideResume({ ...state, tasks: withReview })).toEqual({ stage: "final", round: 1 });
     expect(decideResume({ ...state, tasks: withReview, instruction: { ...state.instruction, feedback: "直して" } })).toEqual({ stage: "review", round: 1, reopen: true });
     expect(decideResume({ ...state, project: null, tasks: [] })).toEqual({ stage: "route" });
+    // failed からの再実行: work が 1 件も成功していなければ、まとめに進まず作業をやり直す
+    const allFailed = state.tasks.map((t) => (t.kind === "work" ? { ...t, status: "failed" as const } : { ...t, status: "done" as const }));
+    expect(decideResume({ ...state, tasks: allFailed })).toEqual({ stage: "work", round: 1, retryFailed: true });
   });
 });

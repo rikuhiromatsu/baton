@@ -1,6 +1,7 @@
 // まとまりごとの一覧（7.3・7.5）。AnimatePresence と layout で並べ替えを動かす
-import { useEffect } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, type ReactNode } from "react";
+import { GroupExitingContext } from "./groupExiting.ts";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { STATUS_LABELS, TESTIDS, type InstructionSummary } from "@baton/shared";
 import { groupForHome, sortArchived } from "../lib/sort.ts";
 import { spring } from "../motion/tokens.ts";
@@ -12,6 +13,27 @@ type Props = {
   now: number;
   onOpen: (item: InstructionSummary) => void;
 };
+
+function GroupSection({ status, children }: { status: InstructionSummary["status"]; children: ReactNode }) {
+  const isPresent = useIsPresent();
+  return (
+    <GroupExitingContext.Provider value={!isPresent}>
+      <motion.section
+        className="group"
+        data-testid={isPresent ? TESTIDS.instructionGroup(status) : undefined}
+        aria-hidden={isPresent ? undefined : true}
+        style={isPresent ? undefined : { pointerEvents: "none" }}
+        layout="position"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.16 } }}
+        transition={spring.smooth}
+      >
+        {children}
+      </motion.section>
+    </GroupExitingContext.Provider>
+  );
+}
 
 export function InstructionList({ items, now, onOpen }: Props) {
   const groups = groupForHome(items, now);
@@ -27,16 +49,7 @@ export function InstructionList({ items, now, onOpen }: Props) {
     <div className="list" data-testid={TESTIDS.instructionList}>
       <AnimatePresence initial={false}>
         {groups.map((g) => (
-          <motion.section
-            key={g.status}
-            className="group"
-            data-testid={TESTIDS.instructionGroup(g.status)}
-            layout="position"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.16 } }}
-            transition={spring.smooth}
-          >
+          <GroupSection key={g.status} status={g.status}>
             <h2 className="group__label">
               <span>{STATUS_LABELS[g.status]}</span>
               <span className="group__count">{g.items.length}</span>
@@ -49,7 +62,7 @@ export function InstructionList({ items, now, onOpen }: Props) {
                 })}
               </AnimatePresence>
             </ul>
-          </motion.section>
+          </GroupSection>
         ))}
       </AnimatePresence>
     </div>
