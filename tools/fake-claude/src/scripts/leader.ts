@@ -57,6 +57,12 @@ function planTasks(ctx: TurnContext, brief: string, extra: string | null = null)
   return [task(ctx, { title, spec: `${firstLineOf(brief, 1500)}。完了の条件: 成果を 1 つのファイルにまとめる。${tag}`, assignee: a!.name, dependsOn: [], paths: [] })];
 }
 
+/** もとの依頼に [slow] があれば COO への報告にも付ける（COO の最後のターン＝present も遅くする。E41 の版の確認） */
+function slowTag(ctx: TurnContext, instructionId: string): string {
+  const tag = ctx.session.flags[`tag:${instructionId}`];
+  return typeof tag === "string" && tag.includes("[slow]") ? " [slow]" : "";
+}
+
 export function* leaderScript(ctx: TurnContext): Script {
   const parts: string[] = [];
   const actions: LeaderAction[] = [];
@@ -98,7 +104,7 @@ export function* leaderScript(ctx: TurnContext): Script {
     // 全部失敗したら 1 回だけやり直しを足す（ラウンド 2。5.5「全 work が失敗してもリーダーに渡す（リーダーが追加か report を決める）」）
     const outcomes = [...results.matchAll(/^- \S+ .*?（([a-z_]+)）:/gm)].map((m) => m[1]);
     const retryFlag = `retried:${ref.id}`;
-    if (outcomes.length > 0 && outcomes.every((o) => o !== "done") && ctx.session.flags[retryFlag] !== true) {
+    if (outcomes.length > 0 && outcomes.every((o) => o === "failed" || o === "canceled") && ctx.session.flags[retryFlag] !== true) {
       ctx.session.flags[retryFlag] = true;
       const tag = typeof ctx.session.flags[`tag:${ref.id}`] === "string" ? (ctx.session.flags[`tag:${ref.id}`] as string) : carried(ctx);
       const [a] = GENERIC_TEAM.members;
@@ -116,7 +122,7 @@ export function* leaderScript(ctx: TurnContext): Script {
       ? niche
         ? `ニッチ寄りに組み直した 10 本の案です。\n${numbered(SCENARIO_A_NICHE_IDEAS)}`
         : `10 本の案です。\n${numbered(SCENARIO_A_IDEAS)}`
-      : `メンバーの結果をまとめました。\n${results.replace(/（指示 [0-9A-Za-z_-]+）$/, "")}`;
+      : `メンバーの結果をまとめました。${slowTag(ctx, ref.id)}\n${results.replace(/（指示 [0-9A-Za-z_-]+）$/, "")}`;
     parts.push(scenarioA ? SCENARIO_A_LEADER.report : "メンバーの結果をまとめて COO に報告します");
     actions.push({ type: "report", instructionId: ref.id, summary: summary.slice(0, 8000), openIssues: [] });
   }

@@ -29,7 +29,9 @@ export class Scheduler {
   private claiming = false;
   private claimAgain = false;
   private heartbeating = false;
+  private heartbeatAgain = false;
   private stopping = false;
+  private unsubscribeQuota: (() => void) | null = null;
   private readonly lifecycle = new AbortController();
   lastHeartbeatAt: number | null = null;
   lastClaimError: string | null = null;
@@ -54,6 +56,14 @@ export class Scheduler {
   start(): void {
     this.claimTimer = setInterval(() => this.poke(), this.ctx.config.limits.claimPollIntervalMs);
     this.heartbeatTimer = setInterval(() => void this.heartbeat(), this.ctx.config.limits.heartbeatIntervalMs);
+    // 枠の状態（枠切れ・止めている・戻る時刻）が変わったら、次の定期のハートビートを待たずに送る（9 章。画面のリングと帯をすぐ変える）
+    let lastQuota = quotaKey(this.ctx.quota.current);
+    this.unsubscribeQuota = this.ctx.quota.onChange((q) => {
+      const key = quotaKey(q);
+      if (key === lastQuota) return;
+      lastQuota = key;
+      void this.heartbeat();
+    });
     void this.heartbeat();
     this.poke();
   }
@@ -204,8 +214,14 @@ export class Scheduler {
   }
 
   async heartbeat(): Promise<void> {
-    if (this.heartbeating || this.stopping) return;
+    if (this.stopping) return;
+    if (this.heartbeating) {
+      // 送っている最中に変わった分は、終わってからもう一度送る
+      this.heartbeatAgain = true;
+      return;
+    }
     this.heartbeating = true;
+    this.heartbeatAgain = false;
     try {
       const profiles = await this.ctx.profiles().catch(() => null);
       const out = await this.ctx.api.heartbeat(
@@ -231,6 +247,10 @@ export class Scheduler {
     } finally {
       this.heartbeating = false;
     }
+    if (this.heartbeatAgain && !this.stopping) {
+      this.heartbeatAgain = false;
+      await this.heartbeat();
+    }
   }
 
   /** 停止（5.7）: 全プロセスに interrupt → lease を外す → deadlineMs で打ち切り（打ち切られても lease 切れで回収される） */
@@ -239,6 +259,7 @@ export class Scheduler {
     this.stopping = true;
     if (this.claimTimer) clearInterval(this.claimTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.unsubscribeQuota?.();
     this.lifecycle.abort(new StopSignal("shutdown"));
     const all = [...this.threads.values(), ...this.instructions.values(), ...this.finalizes.values()];
     for (const a of [...this.threads.values(), ...this.instructions.values()]) a.controller.abort(new StopSignal("shutdown"));
@@ -255,4 +276,9 @@ export class Scheduler {
     });
     await Promise.race([Promise.allSettled([...releases, ...all.map((a) => a.promise), this.ctx.threads.closeAll()]), timeout]);
   }
+}
+
+/** ハートビートを早めに送るかどうかを決める枠の状態（利用率の細かな変化では送らない） */
+function quotaKey(q: { status: string; paused: boolean; blockedUntil: number | null }): string {
+  return `${q.status}|${q.paused}|${q.blockedUntil ?? ""}`;
 }

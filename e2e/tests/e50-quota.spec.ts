@@ -12,7 +12,9 @@ test("E50 枠切れで止まって知らせが出て、戻ったら自動で続�
   const marker = uniqueMarker("E50", testInfo);
   const start = await api.lastSeq(COO_THREAD_ID);
   await page.goto("/");
-  const created = await api.createInstructionViaChat(marker, `${MARK.quota} 枠の確認`);
+  // [quota] は COO の最初のターンで枠切れになる（9.2: スレッドは not_before 付きで queued、notice）。
+  // 指示は枠が戻って COO のターンが続いてからできるので、ここでは話しかけるだけにして、指示はあとで探す
+  await api.sayToCoo(`${marker} ${MARK.quota} 枠の確認`);
 
   // 枠切れ: リングが赤、帯、COO スレッドの notice、メンバーかスレッドが枠待ち
   const ring = byTestId(page, TESTIDS.usageRing).first();
@@ -25,6 +27,7 @@ test("E50 枠切れで止まって知らせが出て、戻ったら自動で続�
   await api.waitForMessage(COO_THREAD_ID, { kind: "notice", text: UI_TEXT_V2.transcript.quotaHit, afterSeq: start, status: null }, 30_000);
 
   // 期限を過ぎると自動で続く（resetsAt + E2E の余裕 0 秒）
+  const created = await api.findByMarker(marker);
   await api.waitForStatus(created.id, "review", RUNNER_TIMEOUT + 30_000);
   await expect.poll(async () => (await api.quota()).status, { timeout: 30_000 }).not.toBe("rejected");
   await expect(ring).not.toHaveAttribute("data-status", "rejected");

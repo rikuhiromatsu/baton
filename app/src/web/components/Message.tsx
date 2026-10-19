@@ -274,6 +274,8 @@ export const MessageItem = memo(function MessageItem({ m, ctx, grouped }: { m: D
         >
           <Markdown text={m.body} />
         </motion.div>
+        {/* 詳細のタブから話した・差し戻しのコメントは、指示のカード付き（4.4） */}
+        {m.instructionId && <InstructionMiniCard instructionId={m.instructionId} />}
         <div className="msg__foot">
           {m.local === "failed" ? (
             <button type="button" className="chip-button chip-button--danger" onClick={() => void deliver(qc, m.clientId ?? m.id)}>

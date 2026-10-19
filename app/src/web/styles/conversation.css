@@ -76,6 +76,9 @@
   align-items: flex-end;
   padding-top: 10px;
 }
+.msg--ceo > .mini-card {
+  margin-top: 6px;
+}
 .msg__foot {
   min-height: 0;
   margin-top: 4px;

@@ -539,6 +539,20 @@ export class Engine {
     const abort = new AbortController();
     this.turn = { abort };
     const s = this.session;
+    // 枠切れで止まったターンの入力は会話に残っている（実物と同じ）。--resume の「続けて」で、その続きから台本を選ぶ
+    const stashed = s.flags.quotaStash;
+    if (typeof stashed === "string") {
+      delete s.flags.quotaStash;
+      // スレッドのターンは、受信箱がそのまま残っていて同じ入力がもう一度来る（そのときは足さない）
+      const subject = (text: string) =>
+        parseTurnInput(text)
+          .filter((l) => l.tag !== TURN_TAGS.context && l.tag !== TURN_TAGS.instructionState && l.tag !== TURN_TAGS.runner)
+          .map((l) => `${l.tag}${l.text}`);
+      const again = subject(stashed);
+      const now = new Set(subject(input));
+      const repeated = again.length > 0 ? again.every((l) => now.has(l)) : input.includes(stashed.trim());
+      if (!repeated) input = `${stashed.replace(/\[quota(?:@(?:coo|leader|member))?\]/g, "")}\n${input}`;
+    }
     const role: Role | null = detectRole(this.args.appendSystemPrompt ?? this.args.systemPrompt, this.args.jsonSchema);
     s.role = role;
     const markers = parseMarkers(input, role);
@@ -560,6 +574,7 @@ export class Engine {
     this.emitInit(markers);
     try {
       if (this.quotaRejected(ctx, started)) {
+        s.flags.quotaStash = input;
         outcome = "quota";
         return;
       }

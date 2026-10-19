@@ -22,6 +22,8 @@ test("E49 COO の返事とメンバーの作業を中断でき、メンバーは
       return seq;
     }, { message: "COO が返事を書いている", timeout: RUNNER_TIMEOUT, intervals: [100, 200] })
     .toBeGreaterThan(-1);
+  // 偽 claude の [long] は先に道具を十数回呼んでから長い文章を書く（15.2）。文章が流れ始めてから中断する（本文が残ることを見るため）
+  await expect(messageBySeq(page, seq)).toContainText("長い返事の段落です", { timeout: RUNNER_TIMEOUT });
   const interrupt = byTestId(page, TESTIDS.interruptButton).first();
   await expect(interrupt).toBeVisible();
   await interrupt.click();
