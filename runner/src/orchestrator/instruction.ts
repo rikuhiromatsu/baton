@@ -100,7 +100,11 @@ export async function runInstructionPhase(ctx: RunnerContext, claim: Instruction
     const result = await runUnits(run);
     if (result === "released") return "released";
     if (signal.aborted) return "stopped";
-    return await afterRound(run);
+    const outcome = await afterRound(run);
+    // このクレームの仕事は終わった。lease を外して、次のラウンド・再開を待たせない（10 分の lease 切れを待たない）。
+    // 理由の種類に「段階の終わり」が無いので shutdown を使う（Worker は理由を保存しない）。状態の変更で外れていれば 409 は無視
+    await ctx.api.releaseInstruction(instruction.id, { reason: "shutdown", notBefore: null }).catch(() => undefined);
+    return outcome;
   } catch (err) {
     if (err instanceof LimitError) {
       await ctx.api.patchInstruction(instruction.id, { status: "failed", error: err.message }).catch(() => undefined);

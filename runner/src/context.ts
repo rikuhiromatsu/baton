@@ -84,8 +84,6 @@ export class Coordination {
   readonly memberAnswers = new Map<string, (text: string) => void>();
   /** 話し中で保留した COO の present・relay があるプロジェクト（D-79） */
   readonly heldProjects = new Set<string>();
-  /** リーダーのスレッドで、COO にまだ伝えていない CEO の発言がある（会話の区切り。4.6） */
-  readonly unreported = new Map<string, { lastCeoAt: number; timer: ReturnType<typeof setTimeout> | null }>();
   /** 動いているメンバーのセッション（追加の依頼・中断の行き先） */
   readonly memberSessions = new Map<string, { inject: (text: string) => boolean; interrupt: () => void; instructionId: string }>();
 

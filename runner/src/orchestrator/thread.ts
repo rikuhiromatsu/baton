@@ -21,7 +21,7 @@ import { dataPaths } from "../config.ts";
 import type { RunnerContext } from "../context.ts";
 import { ConflictError, errorMessage, StopSignal } from "../errors.ts";
 import { projectRepo } from "../git/workspaces.ts";
-import { executeCooActions, executeLeaderActions, scheduleConversationBreak } from "./actions.ts";
+import { executeCooActions, executeLeaderActions } from "./actions.ts";
 import { clip, hhmm, roleSetup } from "./common.ts";
 
 export type ThreadClaim = Extract<ClaimOutput, { kind: "thread" }>;
@@ -54,7 +54,7 @@ function inboxEntries(inbox: readonly InboxItem[]) {
       const p = i.payload;
       const id = typeof p.projectId === "string" ? p.projectId : null;
       const text = typeof p.text === "string" ? p.text : "プロジェクトが立ちました";
-      if (id && !text.includes(id)) return { kind: i.kind, instructionId: i.instructionId, payload: { ...p, text: `${text}（id: ${id}）` } };
+      if (id && !text.includes(`id: ${id}`)) return { kind: i.kind, instructionId: i.instructionId, payload: { ...p, text: `${text}（id: ${id}）` } };
     }
     return { kind: i.kind, instructionId: i.instructionId, payload: i.payload };
   });
@@ -85,12 +85,6 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
   }
   if (role === "leader" && !project) {
     ctx.log.warn("リーダーのスレッドのプロジェクトが見つかりません", { threadId: thread.id });
-    await ctx.api.turnDone(thread.id, { consumedInboxIds: consumed, awaitingReply: false, ackMessageIds: [], sessionId: thread.currentSessionId ?? randomUUID(), numTurns: 0 });
-    return "skipped";
-  }
-  // 会話の区切りだけで、COO にまだ伝えていないことが無ければ何もしない（4.6）
-  const onlyBreak = inbox.length > 0 && inbox.every((i) => i.kind === "instruction_event" && i.payload.type === "conversation_break");
-  if (role === "leader" && onlyBreak && !ctx.coord.unreported.has(thread.id)) {
     await ctx.api.turnDone(thread.id, { consumedInboxIds: consumed, awaitingReply: false, ackMessageIds: [], sessionId: thread.currentSessionId ?? randomUUID(), numTurns: 0 });
     return "skipped";
   }
@@ -335,16 +329,8 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
     });
   }
 
-  // 会話の区切りの見張り（リーダー。4.6）
+  // 会話の区切り（4.6）は Worker が D1 の未報告から見つけて受信箱に入れる（離れたとき・最後の発言から BATON_CONVERSATION_BREAK_MS）
   if (role === "leader") {
-    const cooReport = (value as { cooReport?: unknown } | null)?.cooReport ?? null;
-    if (cooReport) {
-      const u = ctx.coord.unreported.get(thread.id);
-      if (u?.timer) clearTimeout(u.timer);
-      ctx.coord.unreported.delete(thread.id);
-    } else if (hasCeo && (body || applied.acted)) {
-      scheduleConversationBreak(ctx, thread.id);
-    }
     // 話し中で保留した COO の行動を見直させる（D-79）
     if (ctx.coord.heldProjects.has(project!.id) && !hasCeo) {
       ctx.coord.heldProjects.delete(project!.id);

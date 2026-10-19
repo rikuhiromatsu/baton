@@ -184,20 +184,6 @@ export async function executeCooActions(
   return out;
 }
 
-/** 会話の区切り（CEO の最後の発言から 15 分。4.6） */
-export function scheduleConversationBreak(ctx: RunnerContext, threadId: string): void {
-  const prev = ctx.coord.unreported.get(threadId);
-  if (prev?.timer) clearTimeout(prev.timer);
-  const timer = setTimeout(() => {
-    const cur = ctx.coord.unreported.get(threadId);
-    if (!cur || cur.timer !== timer) return;
-    cur.timer = null;
-    void ctx.api.pushInbox(threadId, { kind: "instruction_event", wakes: true, payload: { type: "conversation_break" } }).catch(() => undefined);
-  }, ctx.config.limits.conversationBreakMs);
-  timer.unref?.();
-  ctx.coord.unreported.set(threadId, { lastCeoAt: ctx.now(), timer });
-}
-
 export async function executeLeaderActions(
   ctx: RunnerContext,
   input: { thread: ThreadClaim["thread"]; project: ProjectWithTeam; messageId: string; value: LeaderTurn; context: ThreadTurnContext; inbox: readonly InboxItem[]; hasCeo: boolean },

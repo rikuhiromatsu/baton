@@ -274,7 +274,8 @@ export class AgentSession {
     if (result) {
       void this.ctx.api
         .patchSession(this.sessionId, {
-          turnsDelta: Math.max(0, Math.floor(result.numTurns)),
+          // スレッドのセッションのターン数は turn-done の numTurns で Worker が足す（二重に数えない）
+          ...(this.opts.threadId === null ? { turnsDelta: Math.max(0, Math.floor(result.numTurns)) } : {}),
           costUsdDelta: Math.max(0, result.costUsdEst),
           tokensInDelta: Math.max(0, Math.floor(result.tokensIn)),
           tokensOutDelta: Math.max(0, Math.floor(result.tokensOut)),
