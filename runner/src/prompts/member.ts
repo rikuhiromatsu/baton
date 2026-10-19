@@ -17,6 +17,8 @@ export type MemberInput = {
   maxTurns: number;
   decisionsLeft: number;
   limits: { fsReadMaxChars: number; fsWriteMaxBytes: number; webFetchMaxChars: number };
+  /** このタスクは前回の実行で途中まで進んでいた（中断からの再開） */
+  resumed?: boolean;
 };
 
 export function buildMemberSystem(input: MemberInput): string {
@@ -61,6 +63,14 @@ export function buildMemberFirstUser(input: MemberInput): string {
     "",
     "## 先に終わったタスクの結果",
     deps.length ? deps.join("\n") : "（なし）",
+    // 中断からの再開では、前回の書き込みが作業フォルダに残っている。同じ追記を繰り返さないようにする（D-34）
+    ...(input.resumed
+      ? [
+          "",
+          "## 注意: 再開",
+          "このタスクは前回の途中で止まりました。作業フォルダに前回書いたファイルが残っている可能性があります。最初に fs_list と fs_read で今の内容を確かめ、既にある内容を fs_append で重ねて追記しないでください。直すときは fs_write で書き直します。",
+        ]
+      : []),
   ].join("\n");
 }
 

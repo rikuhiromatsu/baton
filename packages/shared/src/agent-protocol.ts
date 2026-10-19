@@ -55,7 +55,8 @@ export const MemberStepAction = z.discriminatedUnion("kind", [
     kind: z.literal("tool"),
     tool: z.enum(MEMBER_TOOLS),
     args: z.record(z.string(), z.unknown()),
-    why: z.string().max(200),
+    // モデルが省くことがあるので任意（本番の glm-4.7-flash で検査落ちした）
+    why: z.string().max(200).default(""),
   }),
   z.object({
     kind: z.literal("done"),

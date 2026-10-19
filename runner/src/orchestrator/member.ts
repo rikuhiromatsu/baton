@@ -156,6 +156,8 @@ export async function runMemberTask(ctx: RunContext, task: Task, signal: AbortSi
   const members = ctx.members();
   const agent = members.find((m) => m.id === task.assigneeAgentId) ?? project.agents.find((a) => a.id === task.assigneeAgentId) ?? members[0] ?? null;
   const leader = ctx.leader();
+  // 前回の実行で途中まで進んでいた（開始済み）か。再開時の重複追記を避けるための注意に使う
+  const resumed = task.startedAt !== null;
   await ctx.patchTask(task.id, { status: "running" }, signal);
 
   const sameRound = ctx.workTasks(task.round);
@@ -179,6 +181,7 @@ export async function runMemberTask(ctx: RunContext, task: Task, signal: AbortSi
     maxTurns: ctx.limits.memberTurns,
     decisionsLeft: ctx.decisionsLeft(),
     limits: ctx.limits,
+    resumed,
   };
   const system = buildMemberSystem(input);
   const firstUser = buildMemberFirstUser(input);

@@ -134,7 +134,9 @@ runnerWorkRoutes.post("/tasks", async (c) => {
           .prepare(
             `INSERT INTO tasks (id, instruction_id, parent_task_id, project_id, assignee_agent_id, kind, plan_key, depends_on, title, spec,
                                 status, round, seq, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', ?11, ?12, ?13, ?14
+             WHERE EXISTS (SELECT 1 FROM instructions WHERE id = ?15 AND ${LEASE_WHERE.replace("?", "?16")})
+             ON CONFLICT DO NOTHING`,
           )
           .bind(
             t.id,
@@ -151,12 +153,16 @@ runnerWorkRoutes.post("/tasks", async (c) => {
             t.seq,
             now,
             now,
+            t.instructionId,
+            runner.id,
           ),
       ),
     );
   } catch (err) {
     mapConstraintError(err);
   }
+  // 書き込みの間に取消・別ランナーへの再 claim があれば 409（lease は INSERT 自体の条件でも見ている）
+  for (const iid of instructionIds) await requireLease(db, iid, runner.id);
   const rows = await db.batch(
     withIds.map((t) =>
       db
@@ -205,6 +211,7 @@ runnerWorkRoutes.patch("/tasks/:id", async (c) => {
   } catch (err) {
     mapConstraintError(err);
   }
+  await requireLease(db, task.instruction_id, runner.id);
   const updated = toTask((await db.prepare("SELECT * FROM tasks WHERE id = ?").bind(task.id).first<TaskRow>())!);
   await publish(c.env, [
     { t: "task.upserted", task: updated },
@@ -225,7 +232,8 @@ function storedContent(content: unknown): string {
 runnerWorkRoutes.post("/events", async (c) => {
   const input = await readJson(c, AppendEventsInput);
   const db = c.env.DB;
-  await requireLease(db, input.instructionId, c.get("runner").id);
+  const runnerId = c.get("runner").id;
+  await requireLease(db, input.instructionId, runnerId);
   const now = Date.now();
   const rows = input.events.map((e) => ({ id: newId(), ...e }));
   let results: D1Result[];
@@ -236,7 +244,9 @@ runnerWorkRoutes.post("/events", async (c) => {
         db
           .prepare(
             `INSERT INTO agent_events (id, instruction_id, task_id, agent_id, seq, kind, content, model, tokens_in, tokens_out, duration_ms, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(instruction_id, seq) DO NOTHING`,
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+             WHERE EXISTS (SELECT 1 FROM instructions WHERE id = ?2 AND ${LEASE_WHERE.replace("?", "?13")})
+             ON CONFLICT(instruction_id, seq) DO NOTHING`,
           )
           .bind(
             e.id,
@@ -251,12 +261,14 @@ runnerWorkRoutes.post("/events", async (c) => {
             e.tokensOut ?? null,
             e.durationMs ?? null,
             now,
+            runnerId,
           ),
       ),
     );
   } catch (err) {
     mapConstraintError(err);
   }
+  await requireLease(db, input.instructionId, runnerId);
   const insertedIds = rows.filter((_, n) => results[n]?.meta.changes === 1).map((e) => e.id);
   const last = await db.prepare("SELECT max(seq) AS seq FROM agent_events WHERE instruction_id = ?").bind(input.instructionId).first<{ seq: number | null }>();
   if (insertedIds.length > 0) {
@@ -280,14 +292,17 @@ runnerWorkRoutes.post("/events", async (c) => {
 runnerWorkRoutes.post("/artifacts", async (c) => {
   const input = await readJson(c, CreateArtifactInput);
   const db = c.env.DB;
-  const inst = await requireLease(db, input.instructionId, c.get("runner").id);
+  const runnerId = c.get("runner").id;
+  const inst = await requireLease(db, input.instructionId, runnerId);
   const now = Date.now();
   let changes = 0;
   try {
     const res = await db
       .prepare(
         `INSERT INTO artifacts (id, instruction_id, task_id, project_id, rel_path, title, mime, size_bytes, sha256, preview_text, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(instruction_id, rel_path, sha256) DO NOTHING`,
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+         WHERE EXISTS (SELECT 1 FROM instructions WHERE id = ?2 AND ${LEASE_WHERE.replace("?", "?12")})
+         ON CONFLICT(instruction_id, rel_path, sha256) DO NOTHING`,
       )
       .bind(
         newId(),
@@ -301,12 +316,14 @@ runnerWorkRoutes.post("/artifacts", async (c) => {
         input.sha256,
         input.previewText,
         now,
+        runnerId,
       )
       .run();
     changes = res.meta.changes;
   } catch (err) {
     mapConstraintError(err);
   }
+  await requireLease(db, input.instructionId, runnerId);
   // 同じ path・hash は既存を返す
   const row = (await db
     .prepare(`${ARTIFACT_SELECT} WHERE a.instruction_id = ? AND a.rel_path = ? AND a.sha256 = ?`)

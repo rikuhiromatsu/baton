@@ -1,7 +1,7 @@
 // W15 WebSocket（DO）: hello、instruction.upserted、購読した指示の agent_event.appended だけ、ping→pong、ランナーの接続・切断で runner.status、Origin 違いは拒否
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "@baton/shared";
-import { call, clearQueue, createInstruction, login, openSocket, ORIGIN, registerRunner, runner, sleep, type TestSession } from "./helpers.ts";
+import { browser, call, clearQueue, createInstruction, login, openSocket, ORIGIN, registerRunner, runner, sleep, type TestSession } from "./helpers.ts";
 
 const browserSocket = (s: TestSession) => openSocket("/api/ws", { Origin: ORIGIN, Cookie: s.cookie });
 
@@ -68,6 +68,23 @@ describe("W15 WebSocket", () => {
     await sleep(50);
     expect(ws.raw.some((m) => m.startsWith('{"t":"batch"'))).toBe(true);
     ws.close();
+  });
+
+  it("ログアウトしたセッションのソケットは閉じられ、以後は配信されない（Codex 指摘）", async () => {
+    const s = await login();
+    const other = await login();
+    const ws = await browserSocket(s);
+    const keep = await browserSocket(other);
+    await ws.waitFor((e) => e.t === "hello");
+    await keep.waitFor((e) => e.t === "hello");
+    const closed = new Promise<number>((resolve) => ws.ws.addEventListener("close", (e) => resolve(e.code)));
+    expect((await browser(s, "/api/auth/logout", { method: "POST" })).status).toBe(204);
+    expect(await closed).toBe(4401);
+    // 別のセッションのソケットはそのまま届く
+    const inst = await createInstruction(other, "ログアウト後の配信");
+    await keep.waitFor((e) => e.t === "instruction.upserted" && e.instruction.id === inst.id);
+    expect(ws.events.some((e) => e.t === "instruction.upserted" && e.instruction.id === inst.id)).toBe(false);
+    keep.close();
   });
 
   it("ping に pong が返る", async () => {

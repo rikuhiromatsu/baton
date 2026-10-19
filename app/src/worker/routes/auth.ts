@@ -1,4 +1,5 @@
 // Google ログイン（認可コード + PKCE + state。設計書 6.1）
+import { hubStub } from "../hub/broadcast.ts";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { decodeIdToken, generateCodeVerifier, generateState, Google } from "arctic";
@@ -104,7 +105,10 @@ authRoutes.get("/callback", async (c) => {
 });
 
 authRoutes.post("/logout", requireSession, requireCsrf, async (c) => {
-  await c.env.DB.prepare("DELETE FROM sessions WHERE id_hash = ?").bind(c.get("session").id_hash).run();
+  const idHash = c.get("session").id_hash;
+  await c.env.DB.prepare("DELETE FROM sessions WHERE id_hash = ?").bind(idHash).run();
+  // つないだままのリアルタイム配信も止める
+  await hubStub(c.env).revokeSession(idHash);
   clearSessionCookie(c);
   return c.body(null, 204);
 });

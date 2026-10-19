@@ -12,13 +12,20 @@ import {
 } from "@baton/shared";
 import type { Env } from "../env.ts";
 import { latestRunner, runnerStatusFromRow } from "../db/runners.ts";
+import { allowedEmails } from "../middleware/auth.ts";
 
 export const SOCKET_KIND_HEADER = "X-Baton-Socket";
 export const SOCKET_RUNNER_HEADER = "X-Baton-Runner-Id";
+/** ブラウザのソケットに紐づけるセッション（ログアウト・期限切れ・許可リストからの削除で切るため） */
+export const SOCKET_SESSION_HEADER = "X-Baton-Session";
+export const SOCKET_EMAIL_HEADER = "X-Baton-Email";
+export const SOCKET_EXPIRES_HEADER = "X-Baton-Session-Expires";
+/** 失効で閉じるときの close コード（画面は再接続して 401 → ログインへ） */
+export const CLOSE_SESSION_REVOKED = 4401;
 
 /** ソケットごとに保存する情報（休眠しても残る） */
 export type SocketAttachment =
-  | { kind: "browser"; sub: string | null }
+  | { kind: "browser"; sub: string | null; session: string; email: string; expiresAt: number }
   | { kind: "runner"; runnerId: string };
 
 const BATCH_WINDOW_MS = 100;
@@ -49,8 +56,12 @@ export class BatonHub extends DurableObject<Env> {
       await this.ctx.storage.delete(DISCONNECTED_AT_KEY);
       this.enqueue([{ t: "runner.status", runner: await this.runnerStatus() }]);
     } else if (kind === "browser") {
-      this.ctx.acceptWebSocket(server, ["browser"]);
-      server.serializeAttachment({ kind: "browser", sub: null } satisfies SocketAttachment);
+      const session = request.headers.get(SOCKET_SESSION_HEADER) ?? "";
+      const email = (request.headers.get(SOCKET_EMAIL_HEADER) ?? "").toLowerCase();
+      const expiresAt = Number(request.headers.get(SOCKET_EXPIRES_HEADER) ?? 0);
+      if (!session || !email || !(expiresAt > Date.now())) return new Response("session required", { status: 401 });
+      this.ctx.acceptWebSocket(server, ["browser", `session:${session}`]);
+      server.serializeAttachment({ kind: "browser", sub: null, session, email, expiresAt } satisfies SocketAttachment);
       server.send(JSON.stringify({ t: "hello", serverTime: Date.now(), runner: await this.runnerStatus() } satisfies ServerEvent));
     } else {
       return new Response("unknown socket kind", { status: 400 });
@@ -66,6 +77,10 @@ export class BatonHub extends DurableObject<Env> {
     }
     const att = ws.deserializeAttachment() as SocketAttachment | null;
     if (!att || att.kind !== "browser") return; // ランナーからのメッセージは使わない
+    if (!this.browserStillAllowed(att)) {
+      closeRevoked(ws);
+      return;
+    }
     let data: unknown;
     try {
       data = JSON.parse(message);
@@ -75,7 +90,7 @@ export class BatonHub extends DurableObject<Env> {
     const parsed = ClientEventSchema.safeParse(data);
     if (!parsed.success) return;
     const sub = parsed.data.t === "subscribe" ? parsed.data.instructionId : null;
-    ws.serializeAttachment({ kind: "browser", sub } satisfies SocketAttachment);
+    ws.serializeAttachment({ ...att, sub } satisfies SocketAttachment);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -134,6 +149,16 @@ export class BatonHub extends DurableObject<Env> {
     }
   }
 
+  /** ログアウトしたセッションのソケットを閉じる */
+  async revokeSession(sessionHash: string): Promise<void> {
+    for (const ws of this.ctx.getWebSockets(`session:${sessionHash}`)) closeRevoked(ws);
+  }
+
+  /** 期限切れ・許可リストから外れたブラウザには配らない（HTTP 側の失効をリアルタイムにも効かせる） */
+  private browserStillAllowed(att: Extract<SocketAttachment, { kind: "browser" }>): boolean {
+    return att.expiresAt > Date.now() && allowedEmails(this.env).has(att.email);
+  }
+
   /** テスト・診断用: 接続数 */
   async counts(): Promise<{ browser: number; runner: number }> {
     return { browser: this.ctx.getWebSockets("browser").length, runner: this.ctx.getWebSockets("runner").length };
@@ -154,12 +179,24 @@ export class BatonHub extends DurableObject<Env> {
     if (events.length === 0) return;
     for (const ws of this.ctx.getWebSockets("browser")) {
       const att = ws.deserializeAttachment() as SocketAttachment | null;
-      const sub = att?.kind === "browser" ? att.sub : null;
+      if (att?.kind !== "browser" || !this.browserStillAllowed(att)) {
+        closeRevoked(ws);
+        continue;
+      }
+      const sub = att.sub;
       const mine = events.filter((ev) => ev.t !== "agent_event.appended" || ev.event.instructionId === sub);
       if (mine.length === 0) continue;
       const payload = mine.length === 1 ? mine[0] : { t: "batch", items: mine };
       safeSend(ws, JSON.stringify(payload));
     }
+  }
+}
+
+function closeRevoked(ws: WebSocket): void {
+  try {
+    ws.close(CLOSE_SESSION_REVOKED, "session revoked");
+  } catch {
+    // すでに閉じている
   }
 }
 
