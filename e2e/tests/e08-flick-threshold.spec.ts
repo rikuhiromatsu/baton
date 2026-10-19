@@ -1,17 +1,17 @@
-// E8 短い・遅いフリック（しきい値未満）は戻り、状態が変わらない。速いフリック（距離 50px・速度大）は確定（設計書 7.6・D-24）
+// E8 短い・遅いフリック（しきい値未満）は戻り、状態が変わらない。速いフリック（距離 50px・速度大）は確定（v1 7.6・D-24）
 import { TESTIDS } from "@baton/shared";
 import { PROJECTS } from "../helpers/env.ts";
 import { expect, test } from "../helpers/fixtures.ts";
-import { cardById, swipeCard } from "../helpers/swipe.ts";
-import { byTestId, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
+import { swipeCard } from "../helpers/swipe.ts";
+import { byTestId, cardInPanel, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
 
 test("E8 しきい値未満のフリックは戻り、50px の速いフリックは確定する", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.iphoneChromium, PROJECTS.iphoneWebkit]);
   const marker = uniqueMarker("E8", testInfo);
-  const { instruction } = await api.createAndWait(`${marker} しきい値の確認`);
+  const { instruction } = await api.createAndWait(marker, "しきい値の確認");
 
   await page.goto("/");
-  const card = cardById(page, instruction.id);
+  const card = await cardInPanel(page, testInfo, instruction.id);
   await expect(card).toHaveAttribute("data-status", "review");
   const before = await card.boundingBox();
 

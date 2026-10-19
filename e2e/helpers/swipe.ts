@@ -1,4 +1,4 @@
-// カードのフリック操作（設計書 8.3）。
+// カードのフリック操作（v1 設計書 8.3）と、v2 の画面の左端からのスワイプ・長押し（DESIGN-v2 13.3・13.9・13.13）。
 // - Chromium のタッチ端末: CDP の Input.dispatchTouchEvent（touchStart → touchMove × 8 → touchEnd）。
 //   本物のタッチ入力として扱われ、pointer イベントやスクロールもブラウザが作る。
 // - WebKit のタッチ端末: CDP が無いので PointerEvent（pointerType: "touch"）をページ内で順に dispatchEvent する。
@@ -29,9 +29,9 @@ export type SwipeOptions = {
 
 const MOVES = 8;
 
-/** data-testid="instruction-card" かつ data-id の一致するカード */
-export function cardById(page: Page, id: string): Locator {
-  return page.locator(`[data-testid="${TESTIDS.instructionCard}"][data-id="${id}"]`);
+/** data-testid="instruction-card" かつ data-id の一致するカード（v2 はカードの列・`指示` のシートの中。ui.ts の cardsPanel） */
+export function cardById(scope: Page | Locator, id: string): Locator {
+  return scope.locator(`[data-testid="${TESTIDS.instructionCard}"][data-id="${id}"]`);
 }
 
 export async function detectSwipeMode(page: Page): Promise<SwipeMode> {
@@ -64,8 +64,26 @@ export async function swipeCard(
     const t = (i + 1) / moves;
     return { x: clamp(startX + sign * options.distance * t, 1, maxX), y: clamp(startY + dy * t, 1, maxY) };
   });
-  const stepMs = options.durationMs / (moves + 1);
-  const mode = options.mode ?? (await detectSwipeMode(page));
+  await gesture(page, { x: startX, y: startY }, points, options.durationMs, options.mode, options.onStep);
+}
+
+/**
+ * 指を置いて points の順に動かして離す（CDP のタッチ・WebKit の PointerEvent・マウス）。
+ * 所要時間を (points + 1) 等分した間隔で動かす。CDP のタッチには timestamp を付けて速度を再現する
+ */
+export async function gesture(
+  page: Page,
+  start: { x: number; y: number },
+  points: readonly { x: number; y: number }[],
+  durationMs: number,
+  modeOpt?: SwipeMode,
+  onStep?: (step: number) => Promise<void>,
+): Promise<void> {
+  const startX = start.x;
+  const startY = start.y;
+  const options = { onStep };
+  const stepMs = durationMs / (points.length + 1);
+  const mode = modeOpt ?? (await detectSwipeMode(page));
 
   if (mode === "cdp-touch") {
     const cdp = await page.context().newCDPSession(page);
@@ -204,4 +222,49 @@ function clamp(v: number, min: number, max: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 画面の左端（16px 以内）から右へのスワイプ（13.3・13.13）。ホームではドロワーを開き、リーダーのスレッドでは COO に戻る。
+ * 指は x=4 から始める（カードのフリックは 16px より内側で始まるので衝突しない）
+ */
+export async function edgeSwipe(page: Page, opts: { distance?: number; durationMs?: number; y?: number } = {}): Promise<void> {
+  const viewport = page.viewportSize() ?? { width: 390, height: 844 };
+  const y = opts.y ?? Math.round(viewport.height / 2);
+  const distance = Math.min(opts.distance ?? 220, viewport.width - 10);
+  const moves = 8;
+  const points = Array.from({ length: moves }, (_, i) => ({ x: 4 + (distance * (i + 1)) / moves, y }));
+  await gesture(page, { x: 4, y }, points, opts.durationMs ?? 280);
+}
+
+/** 長押し（組織図のエージェント → シート。13.9）。タッチは指を置いたまま待つ、デスクトップはマウスを押したまま待つ */
+export async function longPress(page: Page, target: Locator, holdMs = 800): Promise<void> {
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  if (!box) throw new Error("長押しする要素が画面にありません");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const mode = await detectSwipeMode(page);
+  if (mode === "cdp-touch") {
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const touch = [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }];
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touch });
+      await sleep(holdMs);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+    return;
+  }
+  if (mode === "mouse") {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await sleep(holdMs);
+    await page.mouse.up();
+    return;
+  }
+  await dispatchPointer(page, "pointerdown", x, y);
+  await sleep(holdMs);
+  await dispatchPointer(page, "pointerup", x, y);
 }

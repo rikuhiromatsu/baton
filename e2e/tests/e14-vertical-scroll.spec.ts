@@ -1,17 +1,17 @@
-// E14 縦スクロール中にカードが横に動かない（斜めの指の動き。設計書 7.6 の向きの判定と touch-action: pan-y）
+// E14 縦スクロール中にカードが横に動かない（斜めの指の動き。v1 7.6 の向きの判定と touch-action: pan-y）
 import { TESTIDS } from "@baton/shared";
 import { PROJECTS } from "../helpers/env.ts";
 import { expect, test } from "../helpers/fixtures.ts";
-import { cardById, swipeCard } from "../helpers/swipe.ts";
-import { byTestId, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
+import { swipeCard } from "../helpers/swipe.ts";
+import { byTestId, cardInPanel, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
 
 test("E14 縦向きに近い斜めの指の動きではカードが横に動かず、状態も変わらない", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.iphoneChromium]);
   const marker = uniqueMarker("E14", testInfo);
-  const { instruction } = await api.createAndWait(`${marker} 縦スクロールの確認`);
+  const { instruction } = await api.createAndWait(marker, "縦スクロールの確認");
 
   await page.goto("/");
-  const card = cardById(page, instruction.id);
+  const card = await cardInPanel(page, testInfo, instruction.id);
   await expect(card).toHaveAttribute("data-status", "review");
   await card.scrollIntoViewIfNeeded();
 

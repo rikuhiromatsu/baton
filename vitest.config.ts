@@ -6,6 +6,7 @@ export default defineConfig({
       "packages/shared/vitest.config.ts",
       "app/vitest.web.config.ts",
       "runner/vitest.config.ts",
+      "tools/fake-claude/vitest.config.ts",
     ],
   },
 });

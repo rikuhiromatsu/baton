@@ -1,0 +1,11 @@
+#!/bin/sh
+# 偽 claude（DESIGN-v2 15.2）。node_modules/.bin からのシンボリックリンクでも本体を見つける。
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK=$(readlink "$SELF")
+  case "$LINK" in
+    /*) SELF="$LINK" ;;
+    *) SELF="$(dirname "$SELF")/$LINK" ;;
+  esac
+done
+exec node --disable-warning=ExperimentalWarning "$(dirname "$SELF")/../src/main.ts" "$@"

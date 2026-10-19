@@ -1,7 +1,8 @@
-// E2E の設定（設計書 8.3、D-28、D-31）
-// - webServer: app を e2e モードでビルドし、ローカルの D1 にマイグレーションを当てて 8790 番で配信する
-// - globalSetup: テスト用ログイン → storageState、ランナーのトークン発行 → ランナーを子プロセスで起動
-// - globalTeardown: ランナーを止める
+// E2E の設定（v1 設計書 8.3・D-28・D-31、DESIGN-v2 15.3）
+// - webServer: app を e2e モードでビルドし、まっさらなローカルの D1 にマイグレーションを当てて 8790 番で配信する
+// - globalSetup: テスト用ログイン → storageState、ランナーのトークン発行 → 作業フォルダと sample-repo を用意し、
+//   偽 claude（BATON_CLAUDE_BIN）を渡したランナーを子プロセスで起動
+// - globalTeardown: ランナーを止め、一時フォルダを消す
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
@@ -29,13 +30,15 @@ export default defineConfig({
   globalSetup: path.join(E2E_DIR, "global-setup.ts"),
   globalTeardown: path.join(E2E_DIR, "global-teardown.ts"),
 
-  // ランナーは 1 つ（同時実行 2）を全テストで共有するので、並列は控えめにする
-  workers: CI ? 2 : 3,
+  // v2 は COO スレッドが全体で 1 本（4.2）で、ターンは受信箱をまとめて 1 回で処理する（4.5）。
+  // 別のテストの発言が同じターンに混ざると台本（偽 claude）の出し分けが崩れ、未読・通知・組織図の検査も他のテストに揺らされる。
+  // そのため 1 つのサーバーの上ではテストを 1 本ずつ流す（並列は CI の matrix＝プロジェクトごとのサーバーで取る）
+  workers: 1,
   fullyParallel: false,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  // ランナーの処理（[slow] は 1 応答 1.5 秒）を待つテストがあるので長め
-  timeout: 150_000,
+  // ランナーの処理（[slow] は 1 応答 1.5 秒、確定は承認から 20 秒）を待つテストがあるので長め
+  timeout: 240_000,
   expect: { timeout: 15_000 },
   reporter: CI
     ? [["list"], ["html", { open: "never", outputFolder: path.join(E2E_DIR, "playwright-report") }], ["github"]]
