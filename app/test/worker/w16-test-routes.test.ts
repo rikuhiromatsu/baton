@@ -1,4 +1,5 @@
-// W16 テスト用ルート: e2e の 4 条件のどれか 1 つでも欠けると 404。W17 run_worker_first で /api/auth/callback が Worker に届く
+// W16 テスト用ルート: e2e の 4 条件のどれか 1 つでも欠けると 404。v2 で消した経路と未知の /api/* は認証より前に 404（12.1・15.4）。
+// W17 run_worker_first で /api/auth/callback が Worker に届く
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { TEST_API_PATHS, TEST_SECRET_HEADER } from "@baton/shared";
@@ -23,7 +24,7 @@ describe("W16 テスト用ルート", () => {
     const claim = await call("/api/runner/claim", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ maxConcurrent: 1, activeIds: [] }),
+      body: JSON.stringify({ kinds: ["thread"], activeThreadIds: [], activeInstructionIds: [], quotaPaused: false }),
     });
     expect([200, 204]).toContain(claim.status);
   });
@@ -58,6 +59,34 @@ describe("W16 テスト用ルート", () => {
     expect(testRoutesAllowed("production", e2eEnv, url, TEST_SECRET)).toBe(false);
     expect(testRoutesAllowed("development", e2eEnv, url, TEST_SECRET)).toBe(false);
     expect(testRoutesAllowed("test", e2eEnv, url, TEST_SECRET)).toBe(false);
+  });
+});
+
+describe("W16 消した経路・未知の経路は認証より前に 404（12.1・15.4）", () => {
+  const cases: [string, string][] = [
+    ["POST", "/api/runner/ai/chat"],
+    ["POST", "/api/instructions"],
+    ["GET", "/api/usage/today"],
+    ["GET", "/api/instructions/abc/events"],
+    ["GET", "/api/runner/instructions/abc/state"],
+    ["GET", "/api/nope"],
+    ["DELETE", "/api/threads"],
+  ];
+  for (const [method, path] of cases) {
+    it(`${method} ${path} は 404（Cookie もトークンも無しで）`, async () => {
+      const res = await call(path, { method, headers: { "Content-Type": "application/json" }, body: method === "GET" ? undefined : "{}" });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ error: { code: "not_found" } });
+    });
+  }
+
+  it("ある経路は従来どおり 401（ブラウザ・ランナー・秘書 bot）", async () => {
+    expect((await call("/api/threads")).status).toBe(401);
+    expect((await call("/api/quota")).status).toBe(401);
+    expect((await call("/api/threads/thread-coo/messages", { method: "POST", body: "{}" })).status).toBe(401);
+    expect((await call("/api/runner/claim", { method: "POST", body: "{}" })).status).toBe(401);
+    expect((await call("/api/bot/v1/overview")).status).toBe(401);
+    expect((await call("/mcp", { method: "POST", body: "{}" })).status).toBe(401);
   });
 });
 

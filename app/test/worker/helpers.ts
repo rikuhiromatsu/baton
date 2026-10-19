@@ -1,7 +1,7 @@
 // Worker 統合テストの共通の道具
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { CSRF_HEADER, TEST_SECRET_HEADER, unpackServerMessage, type InstructionSummary, type ServerEvent, type ServerMessage } from "@baton/shared";
+import { CSRF_HEADER, TEST_SECRET_HEADER, unpackServerMessage, type InstructionSummary, type ProjectWithTeam, type ServerEvent, type ServerMessage } from "@baton/shared";
 import app from "../../src/worker/index.ts";
 import type { Env } from "../../src/worker/env.ts";
 
@@ -17,7 +17,7 @@ export function call(path: string, init?: RequestInit): Promise<Response> {
   );
 }
 
-/** env を差し替えて Hono アプリを直接呼ぶ（本番の設定・偽の AI など） */
+/** env を差し替えて Hono アプリを直接呼ぶ（本番の設定など） */
 export async function callWithEnv(overrides: Partial<Env>, url: string, init?: RequestInit): Promise<Response> {
   const ctx = createExecutionContext();
   const res = await app.fetch(new Request(url.startsWith("http") ? url : `${BASE}${url}`, init), { ...env, ...overrides } as Env, ctx);
@@ -78,34 +78,45 @@ export function runner(r: TestRunner | string, path: string, init: { method?: st
   });
 }
 
-export async function createInstruction(s: TestSession, body = "テストの指示"): Promise<InstructionSummary> {
-  const res = await browser(s, "/api/instructions", { body: { clientId: crypto.randomUUID(), body } });
-  if (res.status !== 201) throw new Error(`create failed: ${res.status} ${await res.text()}`);
-  return (await res.json()) as InstructionSummary;
-}
-
-/** D1 に直接指示を入れる（状態を作るため。レート制限の数に入らないよう created_by の作成時刻は過去にする） */
+/** D1 に直接指示を入れる（状態を作るため） */
 export async function insertInstruction(
   userId: string,
-  fields: { status?: string; createdAt?: number; statusChangedAt?: number; notBefore?: number | null; leaseRunnerId?: string | null; leaseExpiresAt?: number | null; body?: string } = {},
+  fields: {
+    status?: string;
+    createdAt?: number;
+    statusChangedAt?: number;
+    notBefore?: number | null;
+    leaseRunnerId?: string | null;
+    leaseExpiresAt?: number | null;
+    body?: string;
+    title?: string | null;
+    projectId?: string | null;
+    phase?: string | null;
+    revision?: number;
+  } = {},
 ): Promise<string> {
   const id = crypto.randomUUID();
   const now = Date.now();
   const createdAt = fields.createdAt ?? now - 3_600_000;
   await env.DB.prepare(
-    `INSERT INTO instructions (id, client_id, created_by, body, status, status_changed_at, not_before, lease_runner_id, lease_expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO instructions (id, client_id, created_by, body, title, status, status_changed_at, not_before, lease_runner_id, lease_expires_at, project_id, phase, revision,
+                               origin_thread_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'thread-coo', ?, ?)`,
   )
     .bind(
       id,
       crypto.randomUUID(),
       userId,
       fields.body ?? "直接入れた指示",
+      fields.title ?? null,
       fields.status ?? "queued",
       fields.statusChangedAt ?? createdAt,
       fields.notBefore ?? null,
       fields.leaseRunnerId ?? null,
       fields.leaseExpiresAt ?? null,
+      fields.projectId ?? null,
+      fields.phase ?? null,
+      fields.revision ?? 1,
       createdAt,
       createdAt,
     )
@@ -113,14 +124,80 @@ export async function insertInstruction(
   return id;
 }
 
+export type TestProject = { project: ProjectWithTeam; leaderThreadId: string; leaderId: string; memberIds: string[] };
+
+/** ランナーの delegate new と同じ経路で Baton 専用のプロジェクトを作る */
+export async function createProject(r: TestRunner, slug = `p-${crypto.randomUUID().slice(0, 8)}`, name = "テストのプロジェクト"): Promise<TestProject> {
+  const res = await runner(r, "/api/runner/projects", {
+    body: {
+      name,
+      slug,
+      goal: "テストの目的",
+      summary: "要約",
+      leader: { name: "リーダー", specialty: "まとめ" },
+      members: [
+        { name: "リサーチ", specialty: "調べる", profile: "researcher" },
+        { name: "ライター", specialty: "書く", profile: "writer" },
+      ],
+    },
+  });
+  if (res.status !== 201) throw new Error(`create project failed: ${res.status} ${await res.text()}`);
+  const out = (await res.json()) as { project: ProjectWithTeam; leaderThreadId: string };
+  return {
+    ...out,
+    leaderId: out.project.agents.find((a) => a.role === "leader")!.id,
+    memberIds: out.project.agents.filter((a) => a.role === "member").map((a) => a.id),
+  };
+}
+
+/** ランナーが指示を作る（COO の delegate） */
+export async function runnerCreateInstruction(r: TestRunner, projectId: string, fields: { title?: string; body?: string; phase?: string } = {}): Promise<InstructionSummary> {
+  const res = await runner(r, "/api/runner/instructions", {
+    body: {
+      id: crypto.randomUUID(),
+      title: fields.title ?? "テストの指示",
+      body: fields.body ?? "COO の依頼の本文",
+      projectId,
+      originThreadId: "thread-coo",
+      originMessageId: null,
+      phase: fields.phase ?? "leader",
+    },
+  });
+  if (res.status !== 201) throw new Error(`create instruction failed: ${res.status} ${await res.text()}`);
+  return (await res.json()) as InstructionSummary;
+}
+
+export async function postCeo(s: TestSession, threadId: string, body: string, extra: Record<string, unknown> = {}) {
+  return browser(s, `/api/threads/${threadId}/messages`, { body: { clientId: crypto.randomUUID(), body, ...extra } });
+}
+
+export async function claim(r: TestRunner, kinds: string[] = ["thread", "instruction", "finalize"], extra: Record<string, unknown> = {}) {
+  return runner(r, "/api/runner/claim", { body: { kinds, activeThreadIds: [], activeInstructionIds: [], quotaPaused: false, ...extra } });
+}
+
+/** ランナーのセッションを作る */
+export async function createSession(r: TestRunner, fields: Record<string, unknown>): Promise<string> {
+  const id = (fields.id as string | undefined) ?? crypto.randomUUID();
+  const res = await runner(r, "/api/runner/sessions", {
+    body: { id, threadId: null, instructionId: null, agentId: null, role: "member", projectId: null, taskId: null, workspaceId: null, title: "メンバー", cwd: "/tmp/x", model: "sonnet", ...fields },
+  });
+  if (res.status !== 201 && res.status !== 200) throw new Error(`create session failed: ${res.status} ${await res.text()}`);
+  return id;
+}
+
+/** 他のテストの影響を受けないよう、取り出し待ちのものを片付ける */
+export async function clearWork(): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare("UPDATE instructions SET status = 'archived' WHERE status IN ('queued','running','done','needs_decision','review')"),
+    env.DB.prepare("UPDATE thread_inbox SET status = 'consumed' WHERE status = 'pending'"),
+    env.DB.prepare("UPDATE threads SET status = 'idle', lease_runner_id = NULL, lease_expires_at = NULL, not_before = NULL"),
+  ]);
+}
+
 export async function statusOf(id: string): Promise<string | undefined> {
   return (await env.DB.prepare("SELECT status FROM instructions WHERE id = ?").bind(id).first<{ status: string }>())?.status;
 }
 
-/** 他のファイルの影響を受けないよう、取り出し待ちの指示を片付ける */
-export async function clearQueue(): Promise<void> {
-  await env.DB.prepare("UPDATE instructions SET status = 'archived' WHERE status IN ('queued','running')").run();
-}
 
 // ───────────── WebSocket ─────────────
 
@@ -182,3 +259,18 @@ export async function openSocket(path: string, headers: Record<string, string>):
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** メンバーの段階の指示（pending の work タスク 1 つ）を作る */
+export async function membersInstruction(r: TestRunner, projectId?: string): Promise<{ id: string; projectId: string; taskId: string }> {
+  const pid = projectId ?? (await createProject(r)).project.id;
+  const inst = await runnerCreateInstruction(r, pid);
+  const patch = await runner(r, `/api/runner/instructions/${inst.id}`, { method: "PATCH", body: { status: "running", phase: "members" } });
+  if (patch.status !== 200) throw new Error(`patch ${patch.status} ${await patch.text()}`);
+  const taskId = crypto.randomUUID();
+  const t = await runner(r, "/api/runner/tasks", {
+    body: { tasks: [{ id: taskId, instructionId: inst.id, parentTaskId: null, assigneeAgentId: null, kind: "work", planKey: "t1", dependsOn: [], title: "調べる", spec: "s", paths: ["research/"], round: 1, seq: 0 }] },
+  });
+  if (t.status !== 201) throw new Error(`tasks ${t.status} ${await t.text()}`);
+  return { id: inst.id, projectId: pid, taskId };
+}
+

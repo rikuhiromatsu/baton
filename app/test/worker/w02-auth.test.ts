@@ -1,4 +1,4 @@
-// W2〜W6: Google ログイン・オープンリダイレクト・セッション・CSRF
+// W2〜W6: Google ログイン・オープンリダイレクト・セッション・CSRF（v2: 状態を変える代表は COO への発言）
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BASE, browser, call, callWithEnv, cookieFrom, login, ORIGIN } from "./helpers.ts";
@@ -258,35 +258,39 @@ describe("W5 未ログインは 401", () => {
   it("GET /api/session は SessionInfo を返す", async () => {
     const s = await login();
     const info = (await (await browser(s, "/api/session")).json()) as Record<string, unknown>;
-    expect(info).toMatchObject({ user: { email: "ceo@example.com" }, csrfToken: s.csrf, env: "e2e", runner: { online: false } });
+    expect(info).toMatchObject({ user: { email: "ceo@example.com" }, csrfToken: s.csrf, env: "e2e", runner: { online: false, claudeAuth: "unknown" } });
+    // Web Push の公開鍵を配る（10.3）
+    expect(info.vapidPublicKey).toBe(env.VAPID_PUBLIC_KEY);
+    expect((await (await callWithEnv({ VAPID_PUBLIC_KEY: undefined }, "/api/session", { headers: { Cookie: s.cookie } })).json()) as Record<string, unknown>).toMatchObject({ vapidPublicKey: null });
   });
 });
 
 describe("W6 CSRF", () => {
   const body = () => ({ clientId: crypto.randomUUID(), body: "CSRF のテスト" });
+  const PATH = "/api/threads/thread-coo/messages";
 
   it("ヘッダ無しは 403", async () => {
     const s = await login();
-    const res = await browser(s, "/api/instructions", { body: body(), headers: { "X-Baton-CSRF": "" } });
+    const res = await browser(s, PATH, { body: body(), headers: { "X-Baton-CSRF": "" } });
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: { code: "forbidden" } });
   });
 
   it("不一致は 403", async () => {
     const s = await login();
-    expect((await browser(s, "/api/instructions", { body: body(), headers: { "X-Baton-CSRF": "wrong" } })).status).toBe(403);
+    expect((await browser(s, PATH, { body: body(), headers: { "X-Baton-CSRF": "wrong" } })).status).toBe(403);
   });
 
   it("別のセッションの CSRF トークンは 403", async () => {
     const a = await login();
     const b = await login();
-    expect((await browser(a, "/api/instructions", { body: body(), headers: { "X-Baton-CSRF": b.csrf } })).status).toBe(403);
+    expect((await browser(a, PATH, { body: body(), headers: { "X-Baton-CSRF": b.csrf } })).status).toBe(403);
   });
 
   it("Origin 違い・Origin 無しは 403", async () => {
     const s = await login();
-    expect((await browser(s, "/api/instructions", { body: body(), headers: { Origin: "https://evil.example.com" } })).status).toBe(403);
-    const res = await call("/api/instructions", {
+    expect((await browser(s, PATH, { body: body(), headers: { Origin: "https://evil.example.com" } })).status).toBe(403);
+    const res = await call(PATH, {
       method: "POST",
       headers: { Cookie: s.cookie, "X-Baton-CSRF": s.csrf, "Content-Type": "application/json" },
       body: JSON.stringify(body()),
@@ -301,7 +305,7 @@ describe("W6 CSRF", () => {
 
   it("一致すれば通る", async () => {
     const s = await login();
-    expect((await browser(s, "/api/instructions", { body: body() })).status).toBe(201);
+    expect((await browser(s, PATH, { body: body() })).status).toBe(201);
   });
 });
 

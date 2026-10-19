@@ -42,15 +42,17 @@ app.notFound(onNotFound);
  * 登録済みのルート（method＋path）から判定する（use の中間処理は数えない）
  */
 let knownRoutes: { method: string; re: RegExp }[] | null = null;
+/** e2e のテスト用ルート（下の e2e の if の中でだけ足す。本番の成果物にパスの文字列を残さない） */
+const extraRoutes: { method: string; re: RegExp }[] = [];
 function routeExists(method: string, path: string): boolean {
   knownRoutes ??= app.routes
-    .filter((r) => r.method !== "ALL" || r.path.startsWith("/api/test/"))
+    .filter((r) => r.method !== "ALL")
     .map((r) => ({
       method: r.method,
       re: new RegExp(`^${r.path.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\/\*$/, "(/.*)?").replace(/\*/g, ".*").replace(/:[A-Za-z0-9_]+/g, "[^/]+")}/?$`),
     }));
   const m = method === "HEAD" ? "GET" : method;
-  return knownRoutes.some((r) => (r.method === "ALL" || r.method === m) && r.re.test(path));
+  return [...knownRoutes, ...extraRoutes].some((r) => (r.method === "ALL" || r.method === m) && r.re.test(path));
 }
 app.use("/api/*", async (c, next) => {
   if (!routeExists(c.req.method, c.req.path)) return onNotFound(c);
@@ -102,6 +104,7 @@ app.route("/api/bot/v1", botHttpRoutes);
 
 // ───────────── e2e 専用（v1 設計書 6.5。本番ビルドではこの if ごと消える） ─────────────
 if (import.meta.env.MODE === "e2e") {
+  extraRoutes.push({ method: "ALL", re: /^\/api\/test\// });
   app.all("/api/test/*", async (c) => {
     if (!testRoutesAllowed(import.meta.env.MODE, c.env, c.req.url, c.req.header(TEST_SECRET_HEADER))) {
       return c.json(errorBody("not_found", "not found"), 404);
