@@ -2,9 +2,12 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <!-- テーマ（13.11）。描く前に localStorage を読み、固定なら data-theme と theme-color を合わせる。CSP のハッシュは public/_headers -->
+    <script>(function(){try{var t=localStorage.getItem("baton.theme");if(t!=="light"&&t!=="dark")return;var d=document.documentElement;d.setAttribute("data-theme",t);var m=document.querySelectorAll('meta[name="theme-color"]');for(var i=0;i<m.length;i++)m[i].parentNode.removeChild(m[i]);var n=document.createElement("meta");n.name="theme-color";n.content=t==="dark"?"#0B0D12":"#FFFFFF";document.head.appendChild(n);}catch(e){}})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#FFFFFF" />
-    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B0D12" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -13,63 +16,120 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
     <title>Baton</title>
-    <!-- JS の読み込み前から出す全画面スケルトンと入力欄（設計書 7.4・7.9）。React が引き継ぐ -->
+    <!-- JS の読み込み前から出す全画面スケルトンと入力欄（v1 7.4・7.9、DESIGN-v2 13.5・13.11・13.12）。React が引き継ぐ。
+         色はトークンの変数で書き、ダークの値もここに持つ（JS の前から正しい地の色） -->
     <style>
-      html, body { margin: 0; background: #fff; }
-      body { min-height: 100dvh; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; color: #0B0D12; -webkit-tap-highlight-color: transparent; }
+      :root { color-scheme: light; --b-bg: #FFFFFF; --b-tint: #F6F8FC; --b-text: #0B0D12; --b-sk: rgba(11,13,18,0.05); --b-shine: rgba(255,255,255,0.65);
+        --b-glass: rgba(255,255,255,0.72); --b-glass-sub: rgba(255,255,255,0.5); --b-hl: inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(15,23,42,0.04);
+        --b-sh: 0 1px 2px rgba(15,23,42,0.06), 0 2px 8px rgba(15,23,42,0.05); --b-sh-lg: 0 8px 24px rgba(15,23,42,0.08), 0 24px 64px rgba(15,23,42,0.12);
+        --b-g1: rgba(120,170,255,0.34); --b-g2: rgba(190,150,255,0.26); --b-g3: rgba(255,180,150,0.22); --b-g4: rgba(130,230,200,0.22);
+        --b-send: rgba(11,13,18,0.12); --b-line: rgba(11,13,18,0.08); --b-coo: #5E5CE6; --b-dim: rgba(11,13,18,0.40); }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --b-bg: #0B0D12; --b-tint: #07080C; --b-text: #F2F4F8; --b-sk: rgba(255,255,255,0.06); --b-shine: rgba(255,255,255,0.08);
+        --b-glass: rgba(30,32,40,0.74); --b-glass-sub: rgba(40,42,52,0.38); --b-hl: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.30);
+        --b-sh: 0 1px 2px rgba(0,0,0,0.40), 0 2px 8px rgba(0,0,0,0.30); --b-sh-lg: 0 8px 24px rgba(0,0,0,0.40), 0 24px 64px rgba(0,0,0,0.55);
+        --b-g1: rgba(70,110,255,0.30); --b-g2: rgba(150,90,255,0.26); --b-g3: rgba(255,120,90,0.14); --b-g4: rgba(40,200,170,0.18);
+        --b-send: rgba(255,255,255,0.14); --b-line: rgba(255,255,255,0.09); --b-coo: #7D7AFF; --b-dim: rgba(242,244,248,0.44); } }
+      :root[data-theme="dark"] { color-scheme: dark; --b-bg: #0B0D12; --b-tint: #07080C; --b-text: #F2F4F8; --b-sk: rgba(255,255,255,0.06); --b-shine: rgba(255,255,255,0.08);
+        --b-glass: rgba(30,32,40,0.74); --b-glass-sub: rgba(40,42,52,0.38); --b-hl: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.30);
+        --b-sh: 0 1px 2px rgba(0,0,0,0.40), 0 2px 8px rgba(0,0,0,0.30); --b-sh-lg: 0 8px 24px rgba(0,0,0,0.40), 0 24px 64px rgba(0,0,0,0.55);
+        --b-g1: rgba(70,110,255,0.30); --b-g2: rgba(150,90,255,0.26); --b-g3: rgba(255,120,90,0.14); --b-g4: rgba(40,200,170,0.18);
+        --b-send: rgba(255,255,255,0.14); --b-line: rgba(255,255,255,0.09); --b-coo: #7D7AFF; --b-dim: rgba(242,244,248,0.44); }
+      html, body { margin: 0; background: var(--b-bg); }
+      body { min-height: 100dvh; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; color: var(--b-text); -webkit-tap-highlight-color: transparent; overflow: hidden; }
       #boot-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
         background:
-          radial-gradient(60vmax 60vmax at 0% 0%, rgba(120,170,255,0.34), transparent 70%),
-          radial-gradient(55vmax 55vmax at 100% 30%, rgba(190,150,255,0.26), transparent 70%),
-          radial-gradient(55vmax 55vmax at 85% 100%, rgba(255,180,150,0.22), transparent 70%),
-          radial-gradient(52vmax 52vmax at 0% 100%, rgba(130,230,200,0.22), transparent 70%),
-          linear-gradient(180deg, #FFFFFF 0%, #F6F8FC 100%); }
-      #boot-skeleton { position: fixed; inset: 0; z-index: 2; pointer-events: none; padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 0; box-sizing: border-box; }
-      .b-col { max-width: 760px; margin: 0 auto; }
-      .b-bar { display: flex; justify-content: flex-end; height: 44px; margin-bottom: 4px; }
-      .b-chip { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 6px 0 16px; border-radius: 999px; background: rgba(255,255,255,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06), 0 2px 8px rgba(15,23,42,0.05); }
-      .b-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(11,13,18,0.12); }
-      .b-ring { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 2.5px rgba(11,13,18,0.08); }
-      .b-av { width: 32px; height: 32px; border-radius: 50%; background: rgba(11,13,18,0.07); }
-      .b-list { padding-top: 22px; }
-      .b-sk { position: relative; overflow: hidden; background: rgba(11,13,18,0.05); }
-      .b-sk::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.65) 50%, transparent 100%); transform: translateX(-100%); animation: b-shimmer 1.4s linear infinite; }
+          radial-gradient(60vmax 60vmax at 0% 0%, var(--b-g1), transparent 70%),
+          radial-gradient(55vmax 55vmax at 100% 30%, var(--b-g2), transparent 70%),
+          radial-gradient(55vmax 55vmax at 85% 100%, var(--b-g3), transparent 70%),
+          radial-gradient(52vmax 52vmax at 0% 100%, var(--b-g4), transparent 70%),
+          linear-gradient(180deg, var(--b-bg) 0%, var(--b-tint) 100%); }
+      #boot-skeleton { position: fixed; inset: 0; z-index: 2; pointer-events: none; display: flex; box-sizing: border-box; }
+      .b-side, .b-cards { display: none; flex: none; box-sizing: border-box; padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px 0; }
+      .b-side { width: 264px; background: var(--b-glass-sub); box-shadow: inset -1px 0 0 var(--b-line); }
+      .b-cards { width: 380px; padding-right: 14px; }
+      .b-center { flex: 1; min-width: 0; padding: calc(env(safe-area-inset-top, 0px) + 10px) 18px 0; box-sizing: border-box; }
+      .b-bar { display: flex; align-items: center; justify-content: space-between; height: 44px; margin-bottom: 10px; }
+      .b-title { width: 72px; height: 16px; border-radius: 8px; }
+      .b-chip { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 4px 0 14px; border-radius: 999px; background: var(--b-glass-sub); box-shadow: var(--b-hl), var(--b-sh); }
+      .b-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--b-send); }
+      .b-ring { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 3px var(--b-sk); }
+      .b-av { width: 32px; height: 32px; border-radius: 50%; background: var(--b-sk); }
+      .b-col { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+      .b-sk { position: relative; overflow: hidden; background: var(--b-sk); }
+      .b-sk::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, var(--b-shine) 50%, transparent 100%); transform: translateX(-100%); animation: b-shimmer 1.4s linear infinite; }
       @keyframes b-shimmer { to { transform: translateX(100%); } }
-      .b-label { width: 56px; height: 12px; margin: 0 8px 12px; border-radius: 6px; }
-      .b-card { height: 74px; margin-bottom: 10px; border-radius: 24px; background: rgba(255,255,255,0.5); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06), 0 2px 8px rgba(15,23,42,0.05); }
+      .b-bubble { height: 44px; border-radius: 20px; }
+      .b-l { align-self: flex-start; border-top-left-radius: 6px; }
+      .b-r { align-self: flex-end; border-bottom-right-radius: 6px; }
+      .b-row { height: 44px; margin-bottom: 4px; border-radius: 14px; }
+      .b-brand { width: 96px; height: 22px; margin: 6px 0 18px 8px; border-radius: 8px; }
+      .b-card { height: 68px; margin-bottom: 8px; border-radius: 20px; background: var(--b-glass-sub); box-shadow: var(--b-hl), var(--b-sh); }
+      .b-label { width: 56px; height: 12px; margin: 14px 8px 12px; border-radius: 6px; }
       #root { position: relative; z-index: 1; }
-      #boot-composer-wrap { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 31; padding: 0 12px; display: flex; justify-content: center; box-sizing: border-box; }
-      .b-composer { width: 100%; max-width: 760px; min-height: 56px; box-sizing: border-box; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 20px; border-radius: 28px;
-        background: rgba(255,255,255,0.72); -webkit-backdrop-filter: blur(32px) saturate(180%); backdrop-filter: blur(32px) saturate(180%);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.08), 0 24px 64px rgba(15,23,42,0.12); }
-      @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .b-composer { background: rgba(255,255,255,0.94); } }
-      #boot-composer { flex: 1; min-width: 0; display: block; margin: 0; padding: 8px 0; height: 40px; border: 0; outline: none; resize: none; background: transparent; color: #0B0D12; font: inherit; font-size: 16px; line-height: 24px; overflow-y: hidden; caret-color: #0A84FF; }
-      #boot-send { flex: none; width: 40px; height: 40px; border: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(11,13,18,0.12); cursor: pointer; }
+      #boot-composer-wrap { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; padding: 24px 10px calc(env(safe-area-inset-bottom, 0px) + 10px); display: flex; justify-content: center; box-sizing: border-box; }
+      .b-composer { width: 100%; max-width: 760px; min-height: 56px; box-sizing: border-box; display: flex; flex-direction: column; padding: 8px 8px 8px 18px; border-radius: 26px;
+        background: var(--b-glass); -webkit-backdrop-filter: blur(32px) saturate(180%); backdrop-filter: blur(32px) saturate(180%); box-shadow: var(--b-hl), var(--b-sh-lg); }
+      @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .b-composer { background: var(--b-bg); } }
+      .b-meta { display: flex; align-items: center; gap: 4px; min-height: 22px; padding-top: 2px; font-size: 12px; font-weight: 600; color: var(--b-dim); }
+      .b-meta b { color: var(--b-coo); font-weight: 600; }
+      .b-input-row { display: flex; align-items: flex-end; gap: 8px; }
+      #boot-composer { flex: 1; min-width: 0; display: block; margin: 0; padding: 8px 0; height: 40px; border: 0; outline: none; resize: none; background: transparent; color: var(--b-text); font: inherit; font-size: 16px; line-height: 24px; overflow-y: hidden; caret-color: #0A84FF; }
+      #boot-send { flex: none; width: 40px; height: 40px; border: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--b-send); cursor: pointer; }
+      @media (min-width: 1024px) {
+        .b-side { display: block; width: 64px; padding-left: 8px; padding-right: 8px; }
+        .b-side .b-brand { width: 32px; margin-left: 8px; }
+        .b-side .b-row { width: 48px; }
+        .b-cards { display: block; width: 320px; }
+        #boot-composer-wrap { left: 64px; right: 320px; padding: 24px 16px 14px; }
+        .b-center { padding-left: 20px; padding-right: 20px; }
+      }
+      @media (min-width: 1280px) {
+        .b-side { width: 264px; padding-left: 12px; padding-right: 12px; }
+        .b-side .b-brand { width: 96px; }
+        .b-side .b-row { width: auto; }
+        .b-cards { width: 380px; }
+        #boot-composer-wrap { left: 264px; right: 380px; }
+      }
       @media (prefers-reduced-motion: reduce) { .b-sk::after { animation: none; opacity: 0; } }
     </style>
   </head>
   <body>
     <div id="boot-bg" aria-hidden="true"></div>
     <div id="boot-skeleton" data-testid="skeleton-screen" aria-busy="true">
-      <div class="b-col">
-        <div class="b-bar"><div class="b-chip"><span class="b-dot"></span><span class="b-ring"></span><span class="b-av"></span></div></div>
-        <div class="b-list">
-          <div class="b-sk b-label"></div>
-          <div class="b-sk b-card"></div>
-          <div class="b-sk b-card"></div>
-          <div class="b-sk b-card"></div>
-          <div class="b-sk b-card"></div>
-          <div class="b-sk b-card"></div>
+      <div class="b-side">
+        <div class="b-sk b-brand"></div>
+        <div class="b-sk b-row"></div>
+        <div class="b-sk b-row"></div>
+        <div class="b-sk b-row"></div>
+        <div class="b-sk b-row"></div>
+        <div class="b-sk b-row"></div>
+      </div>
+      <div class="b-center">
+        <div class="b-bar"><div class="b-sk b-title"></div><div class="b-chip"><span class="b-dot"></span><span class="b-ring"></span><span class="b-av"></span></div></div>
+        <div class="b-col">
+          <div class="b-sk b-bubble b-l" style="width: 58%"></div>
+          <div class="b-sk b-bubble b-r" style="width: 42%"></div>
+          <div class="b-sk b-bubble b-l" style="width: 70%; height: 84px"></div>
+          <div class="b-sk b-bubble b-r" style="width: 36%"></div>
         </div>
+      </div>
+      <div class="b-cards">
+        <div class="b-sk b-label"></div>
+        <div class="b-sk b-card"></div>
+        <div class="b-sk b-card"></div>
+        <div class="b-sk b-card"></div>
       </div>
     </div>
     <div id="root"></div>
     <div id="boot-composer-wrap">
       <div class="b-composer">
-        <textarea id="boot-composer" data-testid="composer-input" aria-label="COO への指示" rows="1" autocomplete="off" autofocus></textarea>
-        <button id="boot-send" type="button" data-testid="composer-send" aria-label="送信">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5" /></svg>
-        </button>
+        <div class="b-meta"><span aria-hidden="true">→</span><b>COO</b></div>
+        <div class="b-input-row">
+          <textarea id="boot-composer" data-testid="composer-input" aria-label="COO への指示" rows="1" autocomplete="off" autofocus></textarea>
+          <button id="boot-send" type="button" data-testid="composer-send" aria-label="送信">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5" /></svg>
+          </button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/web/main.tsx"></script>

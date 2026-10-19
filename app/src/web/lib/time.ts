@@ -21,3 +21,17 @@ export function compactNumber(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
   return String(n);
 }
+
+/** 時刻（18:00）。枠が戻る時刻など */
+export function hhmm(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** 会話の時刻（今日は 18:00、それ以前は 10/18） */
+export function messageTime(ts: number, now: number): string {
+  const d = new Date(ts);
+  const n = new Date(now);
+  if (d.toDateString() === n.toDateString()) return hhmm(ts);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}

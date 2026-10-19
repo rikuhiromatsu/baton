@@ -1,90 +1,88 @@
-// F2 楽観的作成と、サーバー応答での置き換え（重複しない）
+// F2 楽観的送信と、サーバーの応答での置き換え（重複しない）。オフラインは送信待ち、失敗は再送（13.5）
 import { beforeEach, describe, expect, it } from "vitest";
-import type { InstructionSummary } from "@baton/shared";
-import { deliver, mergeOutbox, submitInstruction } from "../../src/web/api/actions.ts";
-import { upsertInstruction } from "../../src/web/api/cache.ts";
-import { useOutbox } from "../../src/web/state/outbox.ts";
-import { deferred, json, listItems, makeQc, recordingTransport, seedList, summary } from "./helpers.tsx";
+import { API_PATHS, COO_THREAD_ID, type ListMessagesOutput } from "@baton/shared";
+import { qk } from "../../src/web/api/keys.ts";
+import { deliver, mergeOutbox, sendToThread } from "../../src/web/api/messages.ts";
+import { useOutbox, type OutboxItem } from "../../src/web/state/outbox.ts";
+import { useToasts } from "../../src/web/state/toasts.ts";
+import { deferred, json, makeQc, message, recordingTransport } from "./helpers.tsx";
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   useOutbox.setState({ items: {} });
+  useToasts.setState({ toast: null });
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
 });
 
-describe("F2 楽観的作成", () => {
-  it("送るとすぐ一覧の待機に差し込み、サーバーの応答で置き換える（1 件のまま）", async () => {
-    const qc = makeQc();
-    const existing = summary({ status: "running" });
-    seedList(qc, [existing]);
-    const gate = deferred<Response>();
-    const { calls } = recordingTransport(() => gate.promise);
+describe("F2 楽観的送信", () => {
+  it("送信待ちはサーバーの発言の後ろに混ざり、同じ clientId が届いたら消える", () => {
+    const outbox: OutboxItem[] = [
+      { clientId: "c1", target: { kind: "thread", threadId: COO_THREAD_ID }, body: "一つ目", createdAt: 1, state: "sending" },
+      { clientId: "c2", target: { kind: "thread", threadId: COO_THREAD_ID }, body: "二つ目", createdAt: 2, state: "failed" },
+      { clientId: "c3", target: { kind: "thread", threadId: "other" }, body: "別のスレッド", createdAt: 3, state: "sending" },
+    ];
+    const server = [message({ seq: 5 }), message({ seq: 6, authorKind: "ceo", clientId: "c1", body: "一つ目" })];
+    const { items, delivered } = mergeOutbox(server, outbox, COO_THREAD_ID);
+    expect(delivered).toEqual(["c1"]);
+    expect(items.map((m) => m.body)).toEqual([server[0]!.body, "一つ目", "二つ目"]);
+    const local = items[2]!;
+    expect(local.local).toBe("failed");
+    expect(local.authorKind).toBe("ceo");
+    expect(local.seq).toBeGreaterThan(6);
+  });
 
-    const clientId = submitInstruction(qc, "  競合の料金を調べて  ")!;
-    expect(clientId).toMatch(/[0-9a-f-]{36}/);
-    const optimistic = listItems(qc).find((i) => i.clientId === clientId)!;
-    expect(optimistic).toMatchObject({ id: clientId, status: "queued", body: "競合の料金を調べて" });
-    expect(listItems(qc)).toHaveLength(2);
+  it("送ると送信待ちに入り、応答の発言をキャッシュに入れて送信待ちから外す（二重にならない）", async () => {
+    const qc = makeQc();
+    qc.setQueryData<ListMessagesOutput>(qk.messages(COO_THREAD_ID), { items: [], hasMoreBefore: false });
+    const gate = deferred<void>();
+    const { calls } = recordingTransport(async (call) => {
+      await gate.promise;
+      return json(201, { message: message({ seq: 9, authorKind: "ceo", clientId: (call.body as { clientId: string }).clientId, body: "台本を作りたい" }) });
+    });
+    const clientId = sendToThread(qc, COO_THREAD_ID, "  台本を作りたい  ", { contextProjectId: "p1" })!;
     expect(useOutbox.getState().items[clientId]?.state).toBe("sending");
-    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/instructions", body: { clientId, body: "競合の料金を調べて" } });
-    expect(calls[0]!.headers.get("X-Baton-CSRF")).toBe("csrf-test");
-
-    const server: InstructionSummary = summary({ id: "srv-1", clientId, body: "競合の料金を調べて", status: "queued" });
-    gate.resolve(json(201, server));
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-
-    const after = listItems(qc).filter((i) => i.clientId === clientId);
-    expect(after).toHaveLength(1);
-    expect(after[0]!.id).toBe("srv-1");
-    expect(listItems(qc)).toHaveLength(2);
+    expect(useOutbox.getState().items[clientId]?.body).toBe("台本を作りたい");
+    gate.resolve();
+    await tick();
+    await tick();
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.path).toBe(API_PATHS.threadMessages(COO_THREAD_ID));
+    expect(calls[0]!.body).toMatchObject({ clientId, body: "台本を作りたい", contextProjectId: "p1" });
     expect(useOutbox.getState().items[clientId]).toBeUndefined();
+    const cached = qc.getQueryData<ListMessagesOutput>(qk.messages(COO_THREAD_ID))!.items;
+    expect(cached.filter((m) => m.clientId === clientId)).toHaveLength(1);
   });
 
-  it("WebSocket のイベントが応答より先に届いても重複しない", async () => {
+  it("空白だけ・長すぎは送らない", () => {
     const qc = makeQc();
-    seedList(qc, []);
-    const gate = deferred<Response>();
-    recordingTransport(() => gate.promise);
-    const clientId = submitInstruction(qc, "先に WS が来る")!;
-    const server = summary({ id: "srv-2", clientId, body: "先に WS が来る" });
-    upsertInstruction(qc, server); // instruction.upserted
-    expect(listItems(qc).map((i) => i.id)).toEqual(["srv-2"]);
-    gate.resolve(json(201, server));
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(listItems(qc).map((i) => i.id)).toEqual(["srv-2"]);
+    recordingTransport(() => json(500, {}));
+    expect(sendToThread(qc, COO_THREAD_ID, "   ")).toBeNull();
+    expect(sendToThread(qc, COO_THREAD_ID, "あ".repeat(8001))).toBeNull();
+    expect(Object.keys(useOutbox.getState().items)).toHaveLength(0);
   });
 
-  it("空白だけは送らない", () => {
+  it("失敗したら failed と再送のトースト。再送は同じ clientId で送る", async () => {
     const qc = makeQc();
-    seedList(qc, []);
-    const { calls } = recordingTransport(() => json(201, {}));
-    expect(submitInstruction(qc, "  \n\t ")).toBeNull();
-    expect(listItems(qc)).toHaveLength(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("一覧を取り直しても、まだ届いていない楽観的な行は消えない", () => {
-    useOutbox.getState().put({ clientId: "c-pending", body: "送信待ち", createdAt: 1, state: "waiting" });
-    const merged = mergeOutbox({ items: [summary({ clientId: "c-other" })], nextCursor: null });
-    expect(merged.items.map((i) => i.clientId)).toEqual(["c-pending", "c-other"]);
-    // サーバーに届いていた分は送信待ちから外れる
-    const merged2 = mergeOutbox({ items: [summary({ clientId: "c-pending" })], nextCursor: null });
-    expect(merged2.items).toHaveLength(1);
-    expect(useOutbox.getState().items["c-pending"]).toBeUndefined();
-  });
-
-  it("失敗したら failed にし、同じ clientId で再送できる", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
     let fail = true;
-    const { calls } = recordingTransport((c) => (fail ? json(500, { error: { code: "internal", message: "x" } }) : json(201, summary({ id: "srv-3", clientId: (c.body as { clientId: string }).clientId }))));
-    const clientId = submitInstruction(qc, "失敗する")!;
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
+    const { calls } = recordingTransport(() => (fail ? json(500, { error: { code: "internal", message: "x" } }) : json(201, { message: message({ authorKind: "ceo" }) })));
+    const clientId = sendToThread(qc, COO_THREAD_ID, "送れないかも")!;
+    await tick();
+    await tick();
     expect(useOutbox.getState().items[clientId]?.state).toBe("failed");
+    expect(useToasts.getState().toast?.kind).toBe("sendFailed");
     fail = false;
     await deliver(qc, clientId);
     expect(calls.map((c) => (c.body as { clientId: string }).clientId)).toEqual([clientId, clientId]);
-    expect(listItems(qc).map((i) => i.id)).toEqual(["srv-3"]);
+    expect(useOutbox.getState().items[clientId]).toBeUndefined();
+  });
+
+  it("オフラインのときは送らずに送信待ち", () => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    const qc = makeQc();
+    const { calls } = recordingTransport(() => json(201, {}));
+    const clientId = sendToThread(qc, COO_THREAD_ID, "あとで")!;
+    expect(useOutbox.getState().items[clientId]?.state).toBe("waiting");
+    expect(calls).toHaveLength(0);
   });
 });

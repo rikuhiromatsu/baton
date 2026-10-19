@@ -1,4 +1,5 @@
-/* Liquid Glass のデザイントークン（設計書 7.8）。色はすべて変数にしてある（D-18） */
+/* Liquid Glass のデザイントークン（v1 7.8・DESIGN-v2 13.11）。色はすべて変数。
+   ライトが既定。ダークは OS の設定に合わせて自動（data-theme が無いとき）か、data-theme="dark" で固定 */
 :root {
   color-scheme: light;
 
@@ -53,6 +54,34 @@
   --accent-decision: #AF52DE;
   --accent-muted: #8E8E93;
 
+  /* 役割の色（13.11） */
+  --role-coo: #5E5CE6;
+  --role-leader: #0FA5A0;
+  --role-member: #E07A1F;
+  --role-secretary: #8E8E93;
+  --bubble-ceo: color-mix(in srgb, var(--accent) 10%, var(--glass-bg-strong));
+
+  /* 面・線（ガラス以外の薄い塗り。ダークで反転する） */
+  --fill-1: rgba(11, 13, 18, 0.04);
+  --fill-2: rgba(11, 13, 18, 0.07);
+  --fill-3: rgba(11, 13, 18, 0.12);
+  --line: rgba(11, 13, 18, 0.08);
+  --line-strong: rgba(11, 13, 18, 0.14);
+  --track: rgba(11, 13, 18, 0.10);
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-solid: #FFFFFF;
+  --menu-bg: rgba(255, 255, 255, 0.86);
+  --sheet-bg: rgba(255, 255, 255, 0.86);
+  --scrim: rgba(255, 255, 255, 0.35);
+  --scrim-strong: rgba(246, 248, 252, 0.55);
+  --sk: rgba(11, 13, 18, 0.05);
+  --sk-shine: rgba(255, 255, 255, 0.65);
+  --code-bg: rgba(11, 13, 18, 0.045);
+
+  /* 差分の地（13.11） */
+  --diff-add-bg: rgba(48, 197, 90, 0.12);
+  --diff-del-bg: rgba(255, 69, 58, 0.10);
+
   /* 状態の色 */
   --status-queued: var(--accent-muted);
   --status-running: var(--accent);
@@ -82,4 +111,87 @@
   /* safe-area */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* 骨組みの幅（13.3・13.4） */
+  --sidebar-w: 264px;
+  --rail-w: 64px;
+  --cards-w: 380px;
+  --content-w: 760px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-base: #0B0D12;  --bg-tint: #07080C;
+    --glow-1: rgba(70, 110, 255, 0.38);   --glow-2: rgba(150, 90, 255, 0.32);
+    --glow-3: rgba(255, 120, 90, 0.18);   --glow-4: rgba(40, 200, 170, 0.22);
+    --glow-blur: 90px;  --noise-opacity: 0.04;
+    --glass-bg: rgba(28, 30, 38, 0.55);  --glass-bg-strong: rgba(30, 32, 40, 0.74);  --glass-bg-subtle: rgba(40, 42, 52, 0.38);
+    --glass-blur: 24px;  --glass-blur-strong: 34px;  --glass-saturate: 160%;  --glass-fallback-bg: rgba(22, 24, 30, 0.95);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.12);
+    --glass-rim: linear-gradient(135deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.06) 38%, rgba(255,255,255,0.02) 62%, rgba(255,255,255,0.16) 100%);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.30);
+    --glass-sheen: radial-gradient(120% 60% at 20% 0%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 60%);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.40), 0 2px 8px rgba(0,0,0,0.30);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.35), 0 12px 32px rgba(0,0,0,0.45);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.40), 0 24px 64px rgba(0,0,0,0.55);
+    --text-primary: #F2F4F8;  --text-secondary: rgba(242, 244, 248, 0.68);  --text-tertiary: rgba(242, 244, 248, 0.44);  --text-on-accent: #FFFFFF;
+    --accent: #0A84FF;  --accent-success: #30D158;  --accent-warning: #FF9F0A;  --accent-danger: #FF453A;  --accent-decision: #BF5AF2;  --accent-muted: #98989D;
+    --role-coo: #7D7AFF;  --role-leader: #40C8C4;  --role-member: #FF9F43;  --role-secretary: #98989D;
+    --bubble-ceo: color-mix(in srgb, var(--accent) 22%, var(--glass-bg-strong));
+    --fill-1: rgba(255, 255, 255, 0.05);
+    --fill-2: rgba(255, 255, 255, 0.08);
+    --fill-3: rgba(255, 255, 255, 0.14);
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --track: rgba(255, 255, 255, 0.14);
+    --surface: rgba(36, 38, 48, 0.72);
+    --surface-solid: #1A1C24;
+    --menu-bg: rgba(30, 32, 40, 0.90);
+    --sheet-bg: rgba(24, 26, 34, 0.90);
+    --scrim: rgba(0, 0, 0, 0.40);
+    --scrim-strong: rgba(7, 8, 12, 0.62);
+    --sk: rgba(255, 255, 255, 0.06);
+    --sk-shine: rgba(255, 255, 255, 0.08);
+    --code-bg: rgba(255, 255, 255, 0.06);
+    --diff-add-bg: rgba(48, 209, 88, 0.16);
+    --diff-del-bg: rgba(255, 69, 58, 0.16);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-base: #0B0D12;  --bg-tint: #07080C;
+  --glow-1: rgba(70, 110, 255, 0.38);   --glow-2: rgba(150, 90, 255, 0.32);
+  --glow-3: rgba(255, 120, 90, 0.18);   --glow-4: rgba(40, 200, 170, 0.22);
+  --glow-blur: 90px;  --noise-opacity: 0.04;
+  --glass-bg: rgba(28, 30, 38, 0.55);  --glass-bg-strong: rgba(30, 32, 40, 0.74);  --glass-bg-subtle: rgba(40, 42, 52, 0.38);
+  --glass-blur: 24px;  --glass-blur-strong: 34px;  --glass-saturate: 160%;  --glass-fallback-bg: rgba(22, 24, 30, 0.95);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.12);
+  --glass-rim: linear-gradient(135deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.06) 38%, rgba(255,255,255,0.02) 62%, rgba(255,255,255,0.16) 100%);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.30);
+  --glass-sheen: radial-gradient(120% 60% at 20% 0%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 60%);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.40), 0 2px 8px rgba(0,0,0,0.30);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.35), 0 12px 32px rgba(0,0,0,0.45);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.40), 0 24px 64px rgba(0,0,0,0.55);
+  --text-primary: #F2F4F8;  --text-secondary: rgba(242, 244, 248, 0.68);  --text-tertiary: rgba(242, 244, 248, 0.44);  --text-on-accent: #FFFFFF;
+  --accent: #0A84FF;  --accent-success: #30D158;  --accent-warning: #FF9F0A;  --accent-danger: #FF453A;  --accent-decision: #BF5AF2;  --accent-muted: #98989D;
+  --role-coo: #7D7AFF;  --role-leader: #40C8C4;  --role-member: #FF9F43;  --role-secretary: #98989D;
+  --bubble-ceo: color-mix(in srgb, var(--accent) 22%, var(--glass-bg-strong));
+  --fill-1: rgba(255, 255, 255, 0.05);
+  --fill-2: rgba(255, 255, 255, 0.08);
+  --fill-3: rgba(255, 255, 255, 0.14);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --track: rgba(255, 255, 255, 0.14);
+  --surface: rgba(36, 38, 48, 0.72);
+  --surface-solid: #1A1C24;
+  --menu-bg: rgba(30, 32, 40, 0.90);
+  --sheet-bg: rgba(24, 26, 34, 0.90);
+  --scrim: rgba(0, 0, 0, 0.40);
+  --scrim-strong: rgba(7, 8, 12, 0.62);
+  --sk: rgba(255, 255, 255, 0.06);
+  --sk-shine: rgba(255, 255, 255, 0.08);
+  --code-bg: rgba(255, 255, 255, 0.06);
+  --diff-add-bg: rgba(48, 209, 88, 0.16);
+  --diff-del-bg: rgba(255, 69, 58, 0.16);
 }

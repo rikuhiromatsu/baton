@@ -130,6 +130,206 @@ export const IconGoogle = ({ size = 18 }: { size?: number }) => (
   </svg>
 );
 
+export const IconSidebar = (p: P) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+    <path d="M9.5 4.5v15" />
+  </Svg>
+);
+export const IconChat = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 17.5l-1 3 3.4-1.5A8 8 0 1 0 5 17.5z" />
+  </Svg>
+);
+export const IconBranch = (p: P) => (
+  <Svg {...p}>
+    <circle cx="7" cy="6" r="2" />
+    <circle cx="7" cy="18" r="2" />
+    <circle cx="17" cy="8" r="2" />
+    <path d="M7 8v8M17 10a6 6 0 0 1-6 6H9" />
+  </Svg>
+);
+export const IconBell = (p: P) => (
+  <Svg {...p}>
+    <path d="M6.5 10a5.5 5.5 0 0 1 11 0v3.5l1.5 2.5h-14l1.5-2.5z" />
+    <path d="M10 19a2 2 0 0 0 4 0" />
+  </Svg>
+);
+export const IconSettings = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M6 18l1.4-1.4M16.6 7.4L18 6" />
+  </Svg>
+);
+export const IconOrg = (p: P) => (
+  <Svg {...p}>
+    <rect x="9" y="3.5" width="6" height="4.5" rx="1.5" />
+    <rect x="3.5" y="16" width="6" height="4.5" rx="1.5" />
+    <rect x="14.5" y="16" width="6" height="4.5" rx="1.5" />
+    <path d="M12 8v4M6.5 16v-2a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v2" />
+  </Svg>
+);
+export const IconPlus = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+);
+export const IconSquare = (p: P) => (
+  <Svg {...p}>
+    <rect x="7" y="7" width="10" height="10" rx="2.2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+export const IconCopy = (p: P) => (
+  <Svg {...p}>
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+    <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
+  </Svg>
+);
+export const IconEye = (p: P) => (
+  <Svg {...p}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+    <circle cx="12" cy="12" r="2.8" />
+  </Svg>
+);
+export const IconSun = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="3.8" />
+    <path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M5.5 18.5l1.4-1.4M17.1 6.9l1.4-1.4" />
+  </Svg>
+);
+export const IconMoon = (p: P) => (
+  <Svg {...p}>
+    <path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z" />
+  </Svg>
+);
+export const IconAuto = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+export const IconChevronDown = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 9.5l6 6 6-6" />
+  </Svg>
+);
+export const IconChevronRight = (p: P) => (
+  <Svg {...p}>
+    <path d="M9.5 5.5L16 12l-6.5 6.5" />
+  </Svg>
+);
+export const IconSearch = (p: P) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="6" />
+    <path d="M15.5 15.5L20 20" />
+  </Svg>
+);
+export const IconTerminal = (p: P) => (
+  <Svg {...p}>
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+    <path d="M7.5 10l2.5 2-2.5 2M12.5 15h4" />
+  </Svg>
+);
+export const IconGlobe = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17M12 3.5c2.5 2.4 3.5 5.2 3.5 8.5s-1 6.1-3.5 8.5c-2.5-2.4-3.5-5.2-3.5-8.5s1-6.1 3.5-8.5z" />
+  </Svg>
+);
+export const IconPencil = (p: P) => (
+  <Svg {...p}>
+    <path d="M14.5 5.5l4 4L9 19H5v-4z" />
+    <path d="M12.5 7.5l4 4" />
+  </Svg>
+);
+export const IconSparkle = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 4l1.6 4.8L18.5 10.5l-4.9 1.7L12 17l-1.6-4.8L5.5 10.5l4.9-1.7z" />
+    <path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />
+  </Svg>
+);
+export const IconCards = (p: P) => (
+  <Svg {...p}>
+    <rect x="4" y="7.5" width="16" height="12" rx="2.5" />
+    <path d="M6.5 4.5h11" />
+  </Svg>
+);
+export const IconKey = (p: P) => (
+  <Svg {...p}>
+    <circle cx="8" cy="14" r="4" />
+    <path d="M11 11l8-8M16 6l2.5 2.5M14 8l2 2" />
+  </Svg>
+);
+export const IconLink = (p: P) => (
+  <Svg {...p}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+  </Svg>
+);
+export const IconUnlink = (p: P) => (
+  <Svg {...p}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7" />
+    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7" />
+    <path d="M4 4l16 16" />
+  </Svg>
+);
+export const IconRefresh = (p: P) => (
+  <Svg {...p}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+    <path d="M19.5 4.5v4h-4" />
+  </Svg>
+);
+export const IconBrain = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-1.5 5.5A3 3 0 0 0 7.5 18 2.5 2.5 0 0 0 12 19.5v-15A2.5 2.5 0 0 0 9 4.5z" />
+    <path d="M15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 1.5 5.5 3 3 0 0 1-3 5 2.5 2.5 0 0 1-4.5 1.5" />
+  </Svg>
+);
+export const IconListCheck = (p: P) => (
+  <Svg {...p}>
+    <path d="M4.5 7l1.5 1.5L9 5.5M4.5 13l1.5 1.5L9 11.5M4.5 19l1.5 1.5L9 17.5M12 7h7.5M12 13h7.5M12 19h7.5" />
+  </Svg>
+);
+export const IconHand = (p: P) => (
+  <Svg {...p}>
+    <path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11M11 10.5V5a1.5 1.5 0 0 1 3 0v6M14 10.5V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-.5a6 6 0 0 1-4.7-2.3L4 14.6a1.5 1.5 0 0 1 2.3-1.9L8 14.5" />
+  </Svg>
+);
+export const IconDots = (p: P) => (
+  <Svg {...p}>
+    <circle cx="6" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="18" cy="12" r="1.2" fill="currentColor" />
+  </Svg>
+);
+
+/** 道具のアイコン（トランスクリプトの 1 行） */
+export function ToolIcon({ tool, size = 15 }: { tool: string | null; size?: number }) {
+  switch (tool) {
+    case "Read":
+      return <IconFile size={size} />;
+    case "Grep":
+    case "Glob":
+      return <IconSearch size={size} />;
+    case "Edit":
+    case "NotebookEdit":
+      return <IconPencil size={size} />;
+    case "Write":
+      return <IconFile size={size} />;
+    case "Bash":
+      return <IconTerminal size={size} />;
+    case "WebFetch":
+    case "WebSearch":
+      return <IconGlobe size={size} />;
+    case "Skill":
+      return <IconSparkle size={size} />;
+    case "TodoWrite":
+      return <IconListCheck size={size} />;
+    default:
+      return <IconDots size={size} />;
+  }
+}
+
 export function ActionIcon({ action, size = 22 }: { action: CeoAction | "open_decision"; size?: number }) {
   switch (action) {
     case "approve":

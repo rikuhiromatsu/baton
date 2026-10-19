@@ -1,22 +1,25 @@
-// 画面のルート（7.2）。コードで定義する
+// 画面のルート（13.2）。中身は MainLayout がパスから描き分ける（モバイルで COO の会話の上に重ねるため）
 import { createRootRouteWithContext, createRoute, createRouter, retainSearchParams, type RouterHistory } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { AppShell } from "./components/AppShell.tsx";
-import { Archive } from "./screens/Archive.tsx";
-import { Home } from "./screens/Home.tsx";
+import { MainLayout } from "./components/MainLayout.tsx";
 import { Login } from "./screens/Login.tsx";
-import { Projects } from "./screens/Projects.tsx";
 
 type RouterContext = { queryClient: QueryClient };
-type RootSearch = { mock?: number };
+type RootSearch = { mock?: number; still?: number; scenario?: string };
 type LoginSearch = { redirect?: string; e?: string };
+export type DetailSearch = { s?: string };
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: AppShell,
   // 数値で持つ（文字列だと ?mock=%221%22 のように引用符付きで書き出されるため）
-  validateSearch: (s: Record<string, unknown>): RootSearch => (Number(s.mock) === 1 ? { mock: 1 } : {}),
+  validateSearch: (s: Record<string, unknown>): RootSearch => ({
+    ...(Number(s.mock) === 1 ? { mock: 1 } : {}),
+    ...(Number(s.still) === 1 ? { still: 1 } : {}),
+    ...(s.scenario === "a" ? { scenario: "a" } : {}),
+  }),
   // ?mock=1 を画面遷移のあとも残す（再読み込みしてもモックのまま）
-  search: { middlewares: [retainSearchParams<RootSearch>(["mock"])] },
+  search: { middlewares: [retainSearchParams<RootSearch>(["mock", "still"])] },
 });
 
 const loginRoute = createRoute({
@@ -29,16 +32,28 @@ const loginRoute = createRoute({
   component: Login,
 });
 
-const homeRoute = createRoute({ getParentRoute: () => rootRoute, id: "home", component: Home });
-const homeIndexRoute = createRoute({ getParentRoute: () => homeRoute, path: "/", component: () => null });
-const instructionRoute = createRoute({ getParentRoute: () => homeRoute, path: "i/$id", component: () => null });
-const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "projects", component: Projects });
-const archiveRoute = createRoute({ getParentRoute: () => rootRoute, path: "archive", component: Archive });
+const mainRoute = createRoute({ getParentRoute: () => rootRoute, id: "main", component: MainLayout });
+const empty = () => null;
+const homeRoute = createRoute({ getParentRoute: () => mainRoute, path: "/", component: empty });
+const projectRoute = createRoute({ getParentRoute: () => mainRoute, path: "p/$projectId", component: empty });
+const leaderRoute = createRoute({ getParentRoute: () => mainRoute, path: "p/$projectId/leader", component: empty });
+const instructionRoute = createRoute({
+  getParentRoute: () => mainRoute,
+  path: "i/$id",
+  validateSearch: (s: Record<string, unknown>): DetailSearch => (typeof s.s === "string" && s.s ? { s: s.s } : {}),
+  component: empty,
+});
+const orgRoute = createRoute({ getParentRoute: () => mainRoute, path: "org", component: empty });
+const settingsRoute = createRoute({ getParentRoute: () => mainRoute, path: "settings", component: empty });
+const archiveRoute = createRoute({ getParentRoute: () => mainRoute, path: "archive", component: empty });
 
-export const routeTree = rootRoute.addChildren([loginRoute, homeRoute.addChildren([homeIndexRoute, instructionRoute]), projectsRoute, archiveRoute]);
+export const routeTree = rootRoute.addChildren([
+  loginRoute,
+  mainRoute.addChildren([homeRoute, projectRoute, leaderRoute, instructionRoute, orgRoute, settingsRoute, archiveRoute]),
+]);
 
 export function createAppRouter(queryClient: QueryClient, history?: RouterHistory) {
-  return createRouter({ routeTree, context: { queryClient }, history, defaultPreload: false, scrollRestoration: true });
+  return createRouter({ routeTree, context: { queryClient }, history, defaultPreload: false, scrollRestoration: false });
 }
 
 declare module "@tanstack/react-router" {

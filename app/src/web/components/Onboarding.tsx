@@ -1,11 +1,13 @@
-// 初回の案内（D-38）。最初のログイン時に 1 回だけ出し、メニューの「使い方」からいつでも開ける
+// 初回の案内（D-38・D-69）。v2 の 5 ステップ。最初のログイン時に 1 回だけ出し、メニューの「使い方」からいつでも開ける。
+// 最後のステップに `通知を受け取る`（iOS でホーム画面に追加していなければ案内の 1 行）
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ONBOARDING_STEPS, TESTIDS, UI_TEXT } from "@baton/shared";
+import { PushControl } from "../screens/Settings.tsx";
 import { spring } from "../motion/tokens.ts";
 import { prefixed } from "../state/storage.ts";
 import { useUi } from "../state/ui.ts";
-import { IconArrowUp, IconCheck, IconSendBack } from "./Icons.tsx";
+import { IconArrowUp, IconBell, IconCheck, IconHand, IconSendBack } from "./Icons.tsx";
 
 /** 見終わった印（localStorage）。E2E はこれを先に入れて案内を出さない */
 export const ONBOARDED_KEY = "baton:onboarded";
@@ -78,12 +80,7 @@ export function Onboarding() {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          className="onboarding-scrim"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0, transition: { duration: 0.16 } }}
-        >
+        <motion.div className="onboarding-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.16 } }}>
           <motion.section
             className="onboarding glass glass--sheet"
             role="dialog"
@@ -115,17 +112,17 @@ export function Onboarding() {
                     {current.title}
                   </h2>
                   <p className="onboarding__body">{current.body}</p>
+                  {last && (
+                    <div className="onboarding__push">
+                      <PushControl compact />
+                    </div>
+                  )}
                 </motion.div>
               </AnimatePresence>
             </div>
             <div className="onboarding__dots" aria-hidden="true">
               {ONBOARDING_STEPS.map((_, i) => (
-                <motion.span
-                  key={i}
-                  className="onboarding__dot"
-                  animate={{ width: i === step ? 20 : 6, opacity: i === step ? 1 : 0.35 }}
-                  transition={spring.snappy}
-                />
+                <motion.span key={i} className="onboarding__dot" animate={{ width: i === step ? 20 : 6, opacity: i === step ? 1 : 0.35 }} transition={spring.snappy} />
               ))}
             </div>
             <div className="onboarding__actions">
@@ -162,8 +159,20 @@ function Illustration({ step }: { step: number }) {
     reduce ? {} : { animate: { x: values }, transition: { duration, repeat: Infinity, ease: "easeInOut" as const, repeatDelay: 0.6 } };
 
   if (step === 0) {
+    // 入力欄 → COO の吹き出しが返ってくる
     return (
-      <div className="ob-illu" aria-hidden="true">
+      <div className="ob-illu ob-chat" aria-hidden="true">
+        <motion.div className="ob-bubble ob-bubble--ceo" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring.gentle, delay: 0.1 }}>
+          <span className="ob-line" style={{ width: 70 }} />
+        </motion.div>
+        <motion.div className="ob-bubble ob-bubble--coo" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring.gentle, delay: 0.7 }}>
+          <span className="ob-dot ob-dot--coo" />
+          <span className="ob-typing">
+            <i />
+            <i />
+            <i />
+          </span>
+        </motion.div>
         <div className="ob-composer glass glass--bar">
           <motion.span className="ob-line" style={{ width: "62%" }} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }} />
           <span className="ob-send">
@@ -174,16 +183,30 @@ function Illustration({ step }: { step: number }) {
     );
   }
   if (step === 1) {
+    // プロジェクト案のカード → 立てる
+    return (
+      <div className="ob-illu" aria-hidden="true">
+        <motion.div className="ob-proposal glass glass--card" initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring.gentle}>
+          <span className="ob-line" style={{ width: "48%" }} />
+          <span className="ob-line ob-line--soft" style={{ width: "80%" }} />
+          <span className="ob-team">
+            <i className="ob-dot ob-dot--leader" />
+            <i className="ob-dot ob-dot--member" />
+            <i className="ob-dot ob-dot--member" />
+          </span>
+          <motion.span className="ob-accept" animate={reduce ? {} : { scale: [1, 1.08, 1] }} transition={{ duration: 1.6, repeat: Infinity, repeatDelay: 0.6 }}>
+            <IconCheck size={12} />
+          </motion.span>
+        </motion.div>
+      </div>
+    );
+  }
+  if (step === 2) {
+    // CEO → COO → リーダー → メンバー、リーダーに降りていく線
     return (
       <div className="ob-illu ob-tree" aria-hidden="true">
-        {["CEO", "COO", "Leader", "Members"].map((label, i) => (
-          <motion.div
-            key={label}
-            className={`ob-node ob-node--${i}`}
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...spring.gentle, delay: i * 0.18 }}
-          >
+        {["ceo", "coo", "leader", "members"].map((label, i) => (
+          <motion.div key={label} className={`ob-node ob-node--${label}`} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring.gentle, delay: i * 0.16 }}>
             {i === 3 ? (
               <span className="ob-members">
                 <i />
@@ -195,22 +218,18 @@ function Illustration({ step }: { step: number }) {
             )}
           </motion.div>
         ))}
-      </div>
-    );
-  }
-  if (step === 2) {
-    return (
-      <div className="ob-illu" aria-hidden="true">
-        <motion.div className="ob-card glass glass--card ob-card--review" initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={spring.gentle}>
-          <span className="ob-dot ob-dot--review" />
-          <span className="ob-line" style={{ width: "58%" }} />
-        </motion.div>
+        {!reduce && <motion.span className="ob-descend" initial={{ pathLength: 0, opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 0.4 }} />}
       </div>
     );
   }
   if (step === 3) {
     return (
       <div className="ob-illu" aria-hidden="true">
+        <div className="ob-approval glass glass--card">
+          <IconHand size={14} />
+          <span className="ob-line" style={{ width: "50%" }} />
+          <motion.span className="ob-allow" animate={reduce ? {} : { scale: [1, 1.1, 1] }} transition={{ duration: 1.4, repeat: Infinity }} />
+        </div>
         <div className="ob-swipe">
           <span className="ob-under ob-under--right">
             <IconCheck size={14} />
@@ -228,10 +247,10 @@ function Illustration({ step }: { step: number }) {
   }
   return (
     <div className="ob-illu" aria-hidden="true">
-      <div className="ob-topbar glass glass--chip">
-        <span className="ob-dot ob-dot--online" />
-        <motion.span className="ob-avatar" animate={reduce ? {} : { scale: [1, 1.12, 1] }} transition={{ duration: 1.6, repeat: Infinity }} />
-      </div>
+      <motion.div className="ob-bell" animate={reduce ? {} : { rotate: [0, -12, 10, -6, 0] }} transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 1.2 }}>
+        <IconBell size={30} />
+        <span className="ob-bell__badge" />
+      </motion.div>
     </div>
   );
 }

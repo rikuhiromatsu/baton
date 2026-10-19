@@ -1,5 +1,5 @@
-// ホームの並び（設計書 7.3）
-import { HOME_STATUS_ORDER, RECENT_DAYS_FOR_CLOSED, type InstructionStatus, type InstructionSummary } from "@baton/shared";
+// 指示カードの並び（v1 7.3・DESIGN-v2 13.8）。開いた判断のある running は「判断待ち」のまとまり（displayGroup）
+import { HOME_STATUS_ORDER, RECENT_DAYS_FOR_CLOSED, displayGroup, type InstructionStatus, type InstructionSummary } from "@baton/shared";
 
 const DAY = 24 * 60 * 60 * 1000;
 export type HomeStatus = (typeof HOME_STATUS_ORDER)[number];
@@ -18,12 +18,13 @@ export function byStatusChangedDesc(a: InstructionSummary, b: InstructionSummary
   return b.statusChangedAt - a.statusChangedAt || b.createdAt - a.createdAt;
 }
 
-/** まとまりごとに分けて並べる。空のまとまりは返さない */
-export function groupForHome(items: readonly InstructionSummary[], now: number): HomeGroup[] {
+/** まとまりごとに分けて並べる。空のまとまりは返さない。projectId を渡すとそのプロジェクトだけ */
+export function groupForHome(items: readonly InstructionSummary[], now: number, projectId: string | null = null): HomeGroup[] {
   const buckets = new Map<HomeStatus, InstructionSummary[]>();
   for (const item of items) {
     if (!isVisibleOnHome(item, now)) continue;
-    const status = item.status as HomeStatus;
+    if (projectId && item.projectId !== projectId) continue;
+    const status = displayGroup(item) as HomeStatus;
     const list = buckets.get(status);
     if (list) list.push(item);
     else buckets.set(status, [item]);

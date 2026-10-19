@@ -1,5 +1,5 @@
 // フリックの判定（設計書 7.6・D-24）。画面から切り離した純粋関数にして、F4 で検査する。
-import { SWIPE_MAP, type InstructionStatus, type SwipeDirection, type SwipeOutcome } from "@baton/shared";
+import { swipeActionFor, type CardLike, type SwipeDirection, type SwipeOutcome } from "@baton/shared";
 
 export const SWIPE = {
   /** 向きを決めるまでに指が動く距離 */
@@ -25,7 +25,7 @@ export type SwipeDecision = {
   /** 向きの判定。null はまだ決まっていない（10px 未満） */
   axis: Axis | null;
   direction: SwipeDirection | null;
-  /** その方向の操作（SWIPE_MAP）。動けない方向は null */
+  /** その方向の操作（swipeActionFor。開いた判断のある running は判断シート）。動けない方向は null */
   outcome: SwipeOutcome;
   /** その方向に動けるか */
   allowed: boolean;
@@ -61,7 +61,7 @@ export function decideSwipe(
   offset: Vec,
   velocity: Vec,
   width: number,
-  status: InstructionStatus,
+  card: CardLike,
   axis?: Axis | null,
 ): SwipeDecision {
   const threshold = swipeThreshold(width);
@@ -70,7 +70,7 @@ export function decideSwipe(
     return { axis: lockedAxis, direction: null, outcome: null, allowed: false, threshold, pastThreshold: false, commit: false };
   }
   const direction: SwipeDirection = offset.x > 0 ? "right" : "left";
-  const outcome = SWIPE_MAP[status][direction];
+  const outcome = swipeActionFor(card, direction);
   const allowed = outcome !== null;
   const distance = Math.abs(offset.x);
   const sign = Math.sign(offset.x);

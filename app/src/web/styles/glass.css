@@ -55,5 +55,15 @@
   .glass { background: var(--glass-fallback-bg); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .glass { background: var(--glass-fallback-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass, .glass--panel { background: var(--glass-fallback-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+/* サイドパネルのような、画面の端に付く大きな面（角丸なし・ふちは片側の線） */
+.glass--panel {
+  background: var(--glass-bg-subtle);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  border-radius: 0;
+  box-shadow: inset -1px 0 0 var(--line);
+}
+.glass--panel::before { display: none; }

@@ -1,10 +1,22 @@
-// 送信待ち・送信失敗の指示（7.4 の 7）。オフライン中に打った分を再起動後も失わないよう永続化する
+// 送信待ち・送信失敗の発言（v1 7.4 の 7 を発言に。13.5）。オフライン中に打った分を再起動後も失わないよう永続化する
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { appStorage } from "./storage.ts";
 
 export type OutboxState = "sending" | "failed" | "waiting";
-export type OutboxItem = { clientId: string; body: string; createdAt: number; state: OutboxState };
+
+/** 宛先: スレッドへの発言か、メンバーへの追加の依頼（D-54） */
+export type OutboxTarget = { kind: "thread"; threadId: string } | { kind: "session"; sessionId: string; instructionId: string };
+
+export type OutboxItem = {
+  clientId: string;
+  target: OutboxTarget;
+  body: string;
+  contextProjectId?: string;
+  instructionId?: string;
+  createdAt: number;
+  state: OutboxState;
+};
 
 type Outbox = {
   items: Record<string, OutboxItem>;
@@ -31,6 +43,18 @@ export const useOutbox = create<Outbox>()(
           return { items };
         }),
     }),
-    { name: "baton-outbox", storage: appStorage, skipHydration: true },
+    { name: "baton-outbox-v2", storage: appStorage, skipHydration: true },
   ),
 );
+
+export function outboxForThread(items: Record<string, OutboxItem>, threadId: string): OutboxItem[] {
+  return Object.values(items)
+    .filter((i) => i.target.kind === "thread" && i.target.threadId === threadId)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function outboxForSession(items: Record<string, OutboxItem>, sessionId: string): OutboxItem[] {
+  return Object.values(items)
+    .filter((i) => i.target.kind === "session" && i.target.sessionId === sessionId)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
