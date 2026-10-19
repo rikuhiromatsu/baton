@@ -1,0 +1,9 @@
+# 静的アセットのセキュリティヘッダ（設計書 6.6）。/api/* は Worker が付ける
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' wss://baton.rikuhiromatsu.workers.dev ws://localhost:8790 https://*.ts.net; img-src 'self' data: https://lh3.googleusercontent.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
+
+/sw.js
+  Cache-Control: no-cache

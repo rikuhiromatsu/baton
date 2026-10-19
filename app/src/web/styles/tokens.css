@@ -1,0 +1,85 @@
+/* Liquid Glass のデザイントークン（設計書 7.8）。色はすべて変数にしてある（D-18） */
+:root {
+  color-scheme: light;
+
+  /* 背景 */
+  --bg-base: #FFFFFF;
+  --bg-tint: #F6F8FC;
+  --glow-1: rgba(120, 170, 255, 0.45);
+  --glow-2: rgba(190, 150, 255, 0.35);
+  --glow-3: rgba(255, 180, 150, 0.30);
+  --glow-4: rgba(130, 230, 200, 0.30);
+  --glow-blur: 80px;
+  --noise-opacity: 0.025;
+
+  /* ガラス */
+  --glass-bg: rgba(255, 255, 255, 0.52);
+  --glass-bg-strong: rgba(255, 255, 255, 0.72);
+  --glass-bg-subtle: rgba(255, 255, 255, 0.34);
+  --glass-blur: 22px;
+  --glass-blur-strong: 32px;
+  --glass-saturate: 180%;
+  --glass-fallback-bg: rgba(255, 255, 255, 0.94);
+
+  /* 光のふち・ハイライト */
+  --glass-border: 1px solid rgba(255, 255, 255, 0.70);
+  --glass-rim: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.25) 38%, rgba(255,255,255,0.10) 62%, rgba(255,255,255,0.70) 100%);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.90), inset 0 -1px 0 rgba(15, 23, 42, 0.04);
+  --glass-sheen: radial-gradient(120% 60% at 20% 0%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 60%);
+
+  /* 影 */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 2px 8px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.08), 0 24px 64px rgba(15, 23, 42, 0.12);
+
+  /* 角丸 */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 999px;
+
+  /* 文字色 */
+  --text-primary: #0B0D12;
+  --text-secondary: rgba(11, 13, 18, 0.62);
+  --text-tertiary: rgba(11, 13, 18, 0.40);
+  --text-on-accent: #FFFFFF;
+
+  /* アクセント */
+  --accent: #0A84FF;
+  --accent-success: #30C55A;
+  --accent-warning: #FF9F0A;
+  --accent-danger: #FF453A;
+  --accent-decision: #AF52DE;
+  --accent-muted: #8E8E93;
+
+  /* 状態の色 */
+  --status-queued: var(--accent-muted);
+  --status-running: var(--accent);
+  --status-needs_decision: var(--accent-decision);
+  --status-review: var(--accent);
+  --status-done: var(--accent-success);
+  --status-failed: var(--accent-danger);
+  --status-canceled: var(--accent-muted);
+  --status-archived: var(--accent-muted);
+
+  /* 余白（4 の倍数） */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  /* 文字 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-xs: 12px;  --text-sm: 13px;  --text-md: 15px;
+  --text-lg: 17px;  --text-xl: 20px;  --text-2xl: 28px;
+  --leading: 1.5;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;
+
+  /* 動き */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* safe-area */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
