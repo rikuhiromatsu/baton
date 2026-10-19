@@ -115,7 +115,11 @@ export function isRunnerRunning(): boolean {
   return isAlive(readRunnerState()?.pid);
 }
 
-/** 子プロセスに渡さない環境変数（本物の claude・API キー・本番の設定に繋がるもの。7.7） */
+/**
+ * ランナーに渡さない環境変数（本物の claude・API キー・本番の設定に繋がるもの。7.7）。
+ * 偽 claude は子の環境に ANTHROPIC_API_KEY・ANTHROPIC_AUTH_TOKEN・BATON_RUNNER_TOKEN があると終了コード 3 で止まる
+ * （ランナーは子の環境を許可リストで組み立てるので BATON_RUNNER_TOKEN は渡らない）
+ */
 const DROP_ENV = /^(ANTHROPIC_|CLAUDE_CODE_|CLAUDE_CONFIG_DIR$|BATON_ENV_FILE$|GH_TOKEN$|GITHUB_TOKEN$|CLOUDFLARE_)/;
 
 export function runnerEnv(state: RunnerState): NodeJS.ProcessEnv {
@@ -136,6 +140,8 @@ export function runnerEnv(state: RunnerState): NodeJS.ProcessEnv {
     BATON_CLAUDE_BIN: state.claudeBin,
     FAKE_CLAUDE_STATE_DIR: state.fakeStateDir,
     FAKE_QUOTA_RESET_SEC: String(E2E_TIMINGS.fakeQuotaResetSec),
+    // [propose] [repo] の COO が案に書くリポジトリ（ランナーの候補にある sample-repo）
+    FAKE_CLAUDE_REPO_PATH: state.sampleRepo,
     // E2E 用に短くした時間（15.3）
     BATON_APPROVAL_WAIT_MS: String(E2E_TIMINGS.approvalWaitMs),
     BATON_THREAD_IDLE_MS: String(E2E_TIMINGS.threadIdleMs),

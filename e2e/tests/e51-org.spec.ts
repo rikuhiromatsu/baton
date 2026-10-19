@@ -12,46 +12,46 @@ test("E51 組織図はリアルタイムに状態が変わり、ノードから�
   onlyOn(testInfo, [PROJECTS.desktop, PROJECTS.iphoneChromium]);
   test.setTimeout(300_000);
   const marker = uniqueMarker("E51", testInfo);
-  // 先に一度流して、プロジェクトとチームを用意する
-  const { instruction: first } = await api.createAndWait(marker, "組織図の準備");
-  const projectId = first.projectId!;
-  const org0 = await api.org();
-  const team = org0.projects.find((p) => p.project.id === projectId)!;
-  const leaderId = team.leader!.agent.id;
-  const memberIds = team.members.map((m) => m.agent.id);
-  const projectName = team.project.name;
-  const node = (agentId: string) => orgNode(page, agentId);
-  const reveal = (agentId: string) => revealOrgNode(page, testInfo, agentId, projectName);
 
+  // 組織図を開いたまま、ノードの data-state の移り変わりをすべて記録する（あとから現れるプロジェクトのノードも）
   await page.goto("/org");
   await expect(byTestId(page, TESTIDS.orgChart)).toBeVisible();
   await expect(page.locator(`[data-testid="${TESTIDS.orgNode}"][data-role="coo"]`)).toBeVisible();
+  await page.evaluate((testid) => {
+    const w = window as unknown as { __batonOrgLog?: Record<string, string[]> };
+    const log = (w.__batonOrgLog = {} as Record<string, string[]>);
+    const record = () => {
+      for (const el of Array.from(document.querySelectorAll(`[data-testid="${testid}"]`))) {
+        const id = el.getAttribute("data-agent-id");
+        const s = el.getAttribute("data-state");
+        if (!id || !s) continue;
+        const arr = (log[id] ??= []);
+        if (arr[arr.length - 1] !== s) arr.push(s);
+      }
+    };
+    record();
+    new MutationObserver(record).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-agent-id"] });
+  }, TESTIDS.orgNode);
+
+  // ① 指示が動く（偽 COO は依頼ごとに Baton 専用のプロジェクトを立てる）→ 再読み込みなしで新しいプロジェクトのノードが現れ、
+  //    リーダー・メンバーが実行中になり、終わると手すき・待機に戻る
+  const created = await api.createInstructionViaChat(marker, `${M.slow} 組織図を動かす`);
+  const projectId = created.projectId!;
+  let team = (await api.org()).projects.find((p) => p.project.id === projectId);
+  await expect.poll(async () => {
+    team = (await api.org()).projects.find((p) => p.project.id === projectId);
+    return team?.members.length ?? 0;
+  }, { message: "組織図にチームが出る" }).toBeGreaterThan(0);
+  const projectName = team!.project.name;
+  const leaderId = team!.leader!.agent.id;
+  const memberIds = team!.members.map((m) => m.agent.id);
+  const node = (agentId: string) => orgNode(page, agentId);
+  const reveal = (agentId: string) => revealOrgNode(page, testInfo, agentId, projectName);
+  // モバイルは折りたたみなので、メンバーが動き出す前に開いておく（[slow] で COO・リーダーの番に時間がある）
   await reveal(leaderId);
   for (const id of memberIds) await reveal(id);
-
-  // ① 指示が動く → 再読み込みなしでメンバーのノードが実行中になり、終わると手すき・待機に戻る
-  const seen: Record<string, string[]> = {};
-  await page.evaluate(
-    ({ testid, ids }) => {
-      const w = window as unknown as { __batonOrgLog?: Record<string, string[]> };
-      const log = (w.__batonOrgLog = {} as Record<string, string[]>);
-      const record = () => {
-        for (const id of ids) {
-          const el = document.querySelector(`[data-testid="${testid}"][data-agent-id="${id}"]`);
-          const s = el?.getAttribute("data-state");
-          const arr = (log[id] ??= []);
-          if (s && arr[arr.length - 1] !== s) arr.push(s);
-        }
-      };
-      record();
-      new MutationObserver(record).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state"] });
-    },
-    { testid: TESTIDS.orgNode, ids: [leaderId, ...memberIds] },
-  );
-  const second = await api.createInstructionViaChat(uniqueMarker("E51b", testInfo), `${M.slow} 組織図を動かす`);
-  expect(second.projectId).toBe(projectId);
-  await api.waitForStatus(second.id, "review", RUNNER_TIMEOUT);
-  Object.assign(seen, await page.evaluate(() => (window as unknown as { __batonOrgLog?: Record<string, string[]> }).__batonOrgLog ?? {}));
+  await api.waitForStatus(created.id, "review", RUNNER_TIMEOUT);
+  const seen = await page.evaluate(() => (window as unknown as { __batonOrgLog?: Record<string, string[]> }).__batonOrgLog ?? {});
   const memberStates = memberIds.flatMap((id) => seen[id] ?? []);
   expect(memberStates, `メンバーの状態の移り変わり: ${JSON.stringify(seen)}`).toContain("running");
   expect(seen[leaderId] ?? [], "リーダーも動く").toContain("running");
@@ -101,7 +101,7 @@ test("E51 組織図はリアルタイムに状態が変わり、ノードから�
 
   // ④ 長押しでエージェントのシート（職種・スキル・道具）
   await page.goto("/org");
-  const memberAgent = team.members[0]!.agent;
+  const memberAgent = team!.members[0]!.agent;
   await longPress(page, await reveal(memberAgent.id));
   const sheet = byTestId(page, TESTIDS.agentSheet);
   await expect(sheet).toBeVisible();

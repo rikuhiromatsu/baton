@@ -8,8 +8,8 @@ import { cardInPanel, onlyOn, uniqueMarker } from "../helpers/ui.ts";
 test("E10 失敗した指示を右フリックで再実行できる", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.desktop]);
   const marker = uniqueMarker("E10", testInfo);
-  // [slow] で再実行中の状態を観測できるようにする。[fail] なので再実行もまた失敗する
-  const first = await api.createAndWait(marker, `${MARK.fail} ${MARK.slow} 失敗する指示`, "failed");
+  // [slow] で再実行中の状態を観測できるようにする。[fail@member] なのでメンバーだけが失敗し（COO・リーダーは動く）、再実行もまた失敗する
+  const first = await api.createAndWait(marker, `${MARK.failMember} ${MARK.slow} 失敗する指示`, "failed");
   expect(first.instruction.error).toBeTruthy();
   const attemptBefore = first.instruction.attempt;
   const cooStart = await api.lastSeq(COO_THREAD_ID);

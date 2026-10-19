@@ -15,10 +15,8 @@ permissions:
 
 env:
   # ランナーが起動する claude は常に偽物（本物の ~/.local/bin/claude は CI に無い）。e2e/helpers/runner.ts もこれ以外を拒む
+  # （ANTHROPIC_API_KEY などは設定しない。空でも定義されていると偽 claude は「API キーが渡った」として終了コード 3 で止まる）
   BATON_CLAUDE_BIN: ${{ github.workspace }}/tools/fake-claude/bin/claude
-  # 子プロセスに渡らないように空にしておく（ランナーは環境を許可リストで組み立てる。7.7）
-  ANTHROPIC_API_KEY: ""
-  CLOUDFLARE_API_TOKEN: ""
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -37,16 +35,11 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: 型検査（shared・worker・web・runner・e2e）
+      - name: 型検査（shared・worker・web・runner・e2e・偽 claude）
         run: npm run typecheck
-      - name: 型検査（偽 claude）
-        run: |
-          if [ -f tools/fake-claude/tsconfig.json ]; then npx tsc -p tools/fake-claude; else echo "tools/fake-claude/tsconfig.json が無いので飛ばす"; fi
 
-      - name: ユニット（shared・web・runner）
+      - name: ユニット（shared・web・runner・偽 claude）
         run: npm run test:unit
-      - name: ユニット（偽 claude の自己テスト）
-        run: npm test -w tools/fake-claude
       - name: Workers 統合（workerd + D1 + DO）
         run: npm run test:worker -w app
 

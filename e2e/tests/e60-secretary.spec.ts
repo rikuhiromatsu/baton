@@ -85,8 +85,9 @@ test("E60 秘書 bot は MCP で様子を読み COO に伝えられるが、決�
   await expect(page.locator(`[data-testid="${TESTIDS.message}"][data-seq="${secSeq}"]`)).toContainText(UI_TEXT_V2.conversation.fromSecretary);
   const secMsg = (await api.messages(COO_THREAD_ID)).find((m) => m.seq === secSeq)!;
   expect(secMsg.notify, "秘書の発言は通知しない").toBe(false);
-  await expectMessageOnScreen(page, { author: "coo", afterSeq: secSeq }, RUNNER_TIMEOUT);
-  await expect.poll(async () => (await api.cooThread()).awaitingReply, { message: "COO は CEO に確かめる（返事待ち）" }).toBe(true);
+  // COO は CEO に確かめる発言をする（偽 claude は「進めてよいか CEO に確かめます」）
+  const cooSeq = await expectMessageOnScreen(page, { author: "coo", afterSeq: secSeq }, RUNNER_TIMEOUT);
+  await expect(page.locator(`[data-testid="${TESTIDS.message}"][data-seq="${cooSeq}"]`)).toContainText("CEO に確かめます");
   await expectStable(
     async () => ({ instructions: (await api.list()).length, projects: (await api.projects()).length }),
     3_000,

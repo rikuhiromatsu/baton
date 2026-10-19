@@ -78,6 +78,8 @@ export const MARK = {
   warn: "[warn]",
   slow: "[slow]",
   fail: "[fail]",
+  /** メンバーだけ失敗（[x@役割] で役割を限定。[fail] は COO も失敗する） */
+  failMember: "[fail@member]",
   maxturns: "[maxturns]",
   badjson: "[badjson]",
   long: "[long]",
