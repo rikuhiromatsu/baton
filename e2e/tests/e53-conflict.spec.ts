@@ -18,15 +18,8 @@ test("E53 並行タスクの衝突をリーダーの解決タスクで統合し�
   await expect.poll(() => tryGit(repo, "rev-parse", "main"), { message: "Baton 専用の本体が git で管理されている" }).not.toBeNull();
   const mainBefore = git(repo, "rev-parse", "main");
 
-  // 衝突した（タスク用の worktree が conflict になった）
-  const conflicted = await api.waitForDetail(
-    created.id,
-    (d) => d.workspaces.some((w) => w.purpose === "task" && w.status === "conflict"),
-    "統合で衝突する",
-    SCENARIO_TIMEOUT,
-  );
-  const conflictTask = conflicted.workspaces.find((w) => w.status === "conflict")!;
-
+  // 衝突（タスク用の worktree が conflict）は、解決タスクが統合されるまでの 1 秒足らずしか続かないので、API を数秒ごとに見ても
+  // 捕まえられないことがある。衝突したことは、終わってからリーダーへの [衝突]・解決タスク・トランスクリプトの「衝突」で確かめる
   // リーダーに [衝突] が渡り、解決タスクができて統合される → 確認
   const d = await api.waitForStatus(created.id, "review", SCENARIO_TIMEOUT);
   const leaderSession = d.sessions.find((s) => s.role === "leader");
@@ -36,7 +29,7 @@ test("E53 並行タスクの衝突をリーダーの解決タスクで統合し�
   expect(d.tasks.length, "解決タスクが足される").toBeGreaterThanOrEqual(3);
   const taskWs = d.workspaces.filter((w) => w.purpose === "task");
   expect(taskWs.filter((w) => w.status === "merged").length, "解決タスクを含めて統合された").toBeGreaterThanOrEqual(2);
-  expect(taskWs.find((w) => w.id === conflictTask.id)?.status, "衝突した worktree は残るか解決で統合済み").toMatch(/^(conflict|merged|removed)$/);
+  for (const w of taskWs) expect(w.status, "衝突した worktree は残るか解決で統合済み").toMatch(/^(conflict|merged|removed)$/);
   // ランナーの出来事として `衝突` と `統合` がトランスクリプトに残る
   const all = (await Promise.all(d.sessions.map((s) => api.transcript(s.id, { instructionId: created.id })))).flat();
   expect(all.some((i) => i.kind === "system" && i.summary.includes(UI_TEXT_V2.transcript.conflict)), "トランスクリプトに「衝突」").toBe(true);

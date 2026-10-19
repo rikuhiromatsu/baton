@@ -20,6 +20,23 @@ async function counts(api: BatonApi, threadIds: string[]) {
   };
 }
 
+/**
+ * ほかのテストが残したターン（会話の区切りで動くリーダーの報告と、それを受けた COO のターンなど）が落ち着くまで待ってから数える。
+ * 入力中の空の発言は作られてから消えるので、動いている途中に数えると前後で数が合わない
+ */
+async function quietCounts(api: BatonApi, threadIds: string[]) {
+  let last: unknown = null;
+  for (let i = 0; i < 12; i++) {
+    const busy = (await api.threads()).some((t) => t.status !== "idle");
+    const now = await counts(api, threadIds);
+    if (!busy && JSON.stringify(now) === JSON.stringify(last)) return now;
+    last = busy ? null : now;
+    // 会話の区切り（E2E は 3 秒）より長く見る
+    await new Promise((r) => setTimeout(r, 3_500));
+  }
+  throw new Error("スレッドが落ち着かない");
+}
+
 test("E58 相づちには既読だけが付き、COO でもリーダーでも何も増えない", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.desktop]);
   const marker = uniqueMarker("E58", testInfo);
@@ -31,7 +48,7 @@ test("E58 相づちには既読だけが付き、COO でもリーダーでも何
 
   for (const [path, threadId] of [["/", COO_THREAD_ID], [`/p/${instruction.projectId}/leader`, leader.id]] as const) {
     await page.goto(path);
-    const before = await counts(api, threads);
+    const before = await quietCounts(api, threads);
     const start = await api.lastSeq(threadId);
     await sendFromComposer(page, `${MARK.scenarioA} ${SCENARIO_A.ceo4}`, testInfo);
     const sent = await api.waitForMessage(threadId, { authorKind: "ceo", text: SCENARIO_A.ceo4, afterSeq: start, status: null }, 15_000);

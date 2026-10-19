@@ -11,6 +11,14 @@ export const SCENARIO_A_LEADER = {
   nicheReport: "CEO と直接話し、題材をニッチ寄りに変更。リサーチに参考集めを指示",
 };
 
+/** タスクキーの番号を指示ごとに数え直す（同じプロジェクト＝同じリーダーのセッションで次の指示が来たとき） */
+function keysFor(ctx: TurnContext, instructionId: string | null): void {
+  const key = instructionId ?? "new";
+  if (ctx.session.flags.nextTaskFor === key) return;
+  ctx.session.flags.nextTaskFor = key;
+  ctx.session.flags.nextTask = 1;
+}
+
 /** 次のタスクキー（t1, t2, …。ラウンド 2 でも続きの番号） */
 function nextKey(ctx: TurnContext): string {
   const n = Number(ctx.session.flags.nextTask ?? 1);
@@ -89,6 +97,7 @@ export function* leaderScript(ctx: TurnContext): Script {
     delete ctx.session.flags.pendingBrief;
     if (pendingBrief) for (const m of parseMarkers(pendingBrief, "leader")) ctx.markers.add(m);
     // 同じ指示の 2 回目の依頼（再実行・差し戻しの relay）は、最初の依頼のマーカーを引き継ぐ
+    keysFor(ctx, ref.id);
     const earlierTag = typeof ctx.session.flags[`tag:${ref.id}`] === "string" ? (ctx.session.flags[`tag:${ref.id}`] as string) : null;
     const tasks = planTasks(ctx, (pendingBrief ?? brief).replace(/（指示 [0-9A-Za-z_-]+）$/, ""), pendingBrief ?? earlierTag);
     // ラウンド 2 のやり直しでも、もとの依頼のマーカーをメンバーに引き継ぐ
@@ -117,7 +126,7 @@ export function* leaderScript(ctx: TurnContext): Script {
       });
       continue;
     }
-    const niche = scenarioA && ctx.session.flags.niche === true;
+    const niche = scenarioA && ctx.session.flags[`niche:${ref.id}`] === true;
     const summary = scenarioA
       ? niche
         ? `ニッチ寄りに組み直した 10 本の案です。\n${numbered(SCENARIO_A_NICHE_IDEAS)}`
@@ -154,7 +163,8 @@ export function* leaderScript(ctx: TurnContext): Script {
     if (isAck(text)) {
       // 相づち: 書かない・増やさない・報告しない
     } else if (scenarioA && /ニッチ/.test(text) && ref) {
-      ctx.session.flags.niche = true;
+      // 同じプロジェクト（slug）を使い回すので、指示ごとに覚える
+      ctx.session.flags[`niche:${ref.id}`] = true;
       parts.push(SCENARIO_A_LEADER.niche);
       actions.push({
         type: "plan",
@@ -165,6 +175,7 @@ export function* leaderScript(ctx: TurnContext): Script {
       cooReport = { summary: SCENARIO_A_LEADER.nicheReport, change: "direction", instructionIds: [ref.id] };
     } else {
       parts.push("わかりました。その方針でメンバーに頼みます。");
+      keysFor(ctx, ref?.id ?? null);
       const tasks = planTasks(ctx, text);
       actions.push({ type: "plan", instructionId: ref?.id ?? null, newTitle: ref ? null : firstLineOf(text) || "テスト", tasks });
       // [no-report] は報告を会話の区切りまで持ち越す（R22 用）

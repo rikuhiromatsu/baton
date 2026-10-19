@@ -82,14 +82,20 @@ export function* cooScript(ctx: TurnContext): Script {
   const leaderReports = linesOf(ctx, TURN_TAGS.leaderReport);
   for (const report of workReports) {
     const ref = resolveInstruction(ctx, report);
-    const niche = scenarioA && (leaderReports.length > 0 || /ニッチ/.test(report) || ctx.session.flags.niche === true);
+    // ニッチに組み直したかは指示ごとに覚える（COO のセッションは全テストで 1 本。前の指示の状態を持ち込まない）
+    const niche = scenarioA && (leaderReports.length > 0 || /ニッチ/.test(report) || (ref !== null && ctx.session.flags[`niche:${ref.id}`] === true));
     let text: string;
     if (scenarioA) text = niche ? `${SCENARIO_A.nichePresent}\n${numbered(SCENARIO_A_NICHE_IDEAS)}` : `${SCENARIO_A.firstPresent}\n${numbered(SCENARIO_A_IDEAS)}`;
     else text = `チームリーダーから報告が上がりました。\n${stripMarkers(report.replace(/（指示 [0-9A-Za-z_-]+）/, ""))}`;
     parts.push(text);
     if (ref) actions.push({ type: "present", instructionId: ref.id, revision: ref.revision, summary: text });
   }
-  if (leaderReports.length > 0 && scenarioA) ctx.session.flags.niche = true;
+  if (scenarioA) {
+    for (const r of leaderReports) {
+      const ref = resolveInstruction(ctx, r);
+      if (ref) ctx.session.flags[`niche:${ref.id}`] = true;
+    }
+  }
 
   // リーダーの質問 → answer_leader
   for (const q of linesOf(ctx, TURN_TAGS.leaderQuestion)) {

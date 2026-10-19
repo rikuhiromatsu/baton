@@ -131,6 +131,14 @@ export async function cardsPanel(page: Page, testInfo: TestInfo): Promise<Locato
   return panel;
 }
 
+/** モバイルで開いたカードのシートを閉じる（デスクトップの列はそのまま）。シートは Escape で閉じる */
+export async function closeCardsPanel(page: Page, _testInfo: TestInfo): Promise<void> {
+  const sheet = page.locator(`.sheet-modal:has([data-testid="${TESTIDS.cardsPanel}"])`);
+  if (!(await sheet.isVisible().catch(() => false))) return;
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+}
+
 /** カードの入れ物を開いて、そのカードを返す */
 export async function cardInPanel(page: Page, testInfo: TestInfo, id: string): Promise<Locator> {
   const panel = await cardsPanel(page, testInfo);

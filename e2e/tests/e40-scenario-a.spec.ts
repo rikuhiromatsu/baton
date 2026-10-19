@@ -12,6 +12,7 @@ import { flick } from "../helpers/swipe.ts";
 import {
   byTestId,
   cardInPanel,
+  closeCardsPanel,
   expectMessageOnScreen,
   expectStable,
   messageBySeq,
@@ -114,6 +115,8 @@ test("E40 シナリオ A: COO との会話から立ち、リーダーに降り�
 
   // ───── A4: COO の発言のカードから「リーダーと話す」 ─────
   await test.step("A4 発言のカードの「リーダーと話す」でリーダーのスレッドへ降りる", async () => {
+    // A3 でモバイルはカードのシートを開いたままなので閉じてから（シートが会話を覆っている）
+    await closeCardsPanel(page, testInfo);
     const report = messageBySeq(page, reportSeq);
     await report.scrollIntoViewIfNeeded();
     await press(report.locator(`[data-testid="${TESTIDS.leaderLink}"]`).first(), testInfo);
@@ -186,6 +189,8 @@ test("E40 シナリオ A: COO との会話から立ち、リーダーに降り�
     await press(byTestId(page, TESTIDS.backToCoo), testInfo);
     await expect(page).toHaveURL(/\/(?:[?#]|$)/);
     await expect(byTestId(page, TESTIDS.thread).first()).toHaveAttribute("data-kind", "coo");
+    // モバイルはリーダーのスレッドが右へ抜けるまで DOM に残り、同じ seq の発言が 2 つ見える。抜け終わるのを待つ
+    await expect(byTestId(page, TESTIDS.thread)).toHaveCount(1);
     const leaderReportSeq = await expectMessageOnScreen(page, { author: "leader", kind: "leader_report", afterSeq: cooStart });
     await expect(messageBySeq(page, leaderReportSeq)).toContainText(UI_TEXT_V2.conversation.toCoo);
   });
