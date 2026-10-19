@@ -137,7 +137,20 @@ async function runUnits(run: Run): Promise<"ok" | "released"> {
     }
     // 2. 依存が満たされたタスク
     if (!ctx.quota.canStartMember()) return null;
-    const all = [...run.tasks.values()];
+    let all = [...run.tasks.values()];
+    // 依存が失敗・取消になったタスクは動かせない。失敗にしてリーダーへの結果に入れる（Codex 指摘）
+    for (let changed = true; changed; ) {
+      changed = false;
+      const deadKeys = new Set(all.filter((t) => (t.status === "failed" || t.status === "canceled") && t.planKey).map((t) => t.planKey!));
+      for (const t of all.filter((x) => x.kind === "work" && x.status === "pending" && x.dependsOn.some((k) => deadKeys.has(k)))) {
+        const dead = t.dependsOn.filter((k) => deadKeys.has(k)).join("・");
+        const reason = `依存するタスク（${dead}）が失敗したため実行しませんでした`;
+        run.tasks.set(t.id, await ctx.api.patchTask(t.id, { status: "failed", resultSummary: reason }).catch(() => ({ ...t, status: "failed" as const, resultSummary: reason })));
+        run.worked = true;
+        changed = true;
+      }
+      all = [...run.tasks.values()];
+    }
     const doneKeys = new Set(all.filter((t) => t.status === "done" && t.planKey).map((t) => t.planKey!));
     const busyTasks = new Set(run.sessions.filter((s) => s.role === "member" && !MEMBER_FINAL_STATUSES.has(s.status) && s.taskId).map((s) => s.taskId!));
     const task = all

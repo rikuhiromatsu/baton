@@ -230,6 +230,7 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
   let outcome: TurnOutcome | null = null;
   let parsed: ReturnType<typeof parseTurnOutput<typeof role>> | null = null;
   let resumedFresh = false;
+  let restarts = 0;
   for (let attempt = 0; ; attempt++) {
     const input =
       attempt === 0
@@ -287,7 +288,9 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
         attempt = -1;
         continue;
       }
-      if (attempt < ctx.config.limits.turnRetries) {
+      if (restarts < ctx.config.limits.turnRetries) {
+        // プロセスの起動し直しは attempt と別に数える（result の無い終わりが続いても無限に起動しない。Codex 指摘）
+        restarts += 1;
         try {
           sessionId = randomUUID();
           rotate = true;

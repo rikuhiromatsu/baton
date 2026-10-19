@@ -72,6 +72,8 @@ export class AgentSession {
   private activity: string | null = null;
   private activityTimer: ReturnType<typeof setTimeout> | null = null;
   private interrupted = false;
+  /** 承認の待ちを止める（中断・取消・停止。Codex 指摘） */
+  private approvalAbort = new AbortController();
   args: string[] = [];
   /** 現在のターンが扱っている指示（スレッドのターンの項目に入れる。8.3 の最後） */
   turnInstructionId: string | null;
@@ -233,9 +235,14 @@ export class AgentSession {
     });
     this.sink.add(approvalItem({ decisionId: decision.id, toolName, toolInput, toolUseId, cwd: this.opts.cwd }));
     this.opts.onApprovalState?.(true);
-    const ac = new AbortController();
+    const ac = this.approvalAbort;
     const answered = await this.ctx.decisions.wait(this.ctx.api, decision.id, config.limits.approvalWaitMs, ac.signal).catch(() => null);
     this.opts.onApprovalState?.(false);
+    if (ac.signal.aborted) {
+      // 中断・取消・停止で待ちをやめた（判断待ちには落とさない）
+      this.proc?.respond(requestId, { behavior: "deny", message: "中断しました" });
+      return;
+    }
     if (answered && answered.verdict === "allow") {
       this.proc?.respond(requestId, { behavior: "allow", updatedInput: toolInput });
       return;
@@ -248,6 +255,7 @@ export class AgentSession {
     this.approvalTimeout = { approvalId: decision.id, toolName, toolInput };
     this.proc?.respond(requestId, { behavior: "deny", message: "CEO の返事が時間内に無かったので、いったん止めます" });
     this.interruptTurn();
+    this.interrupted = false;
   }
 
   /** 1 ターン: 入力を送り、result まで待つ */
@@ -256,6 +264,7 @@ export class AgentSession {
     this.stream = opts.stream ?? null;
     this.interrupted = false;
     this.approvalTimeout = null;
+    if (this.approvalAbort.signal.aborted) this.approvalAbort = new AbortController();
     if (opts.instructionId !== undefined) this.turnInstructionId = opts.instructionId;
     this.sink.add(userInputItem(text, opts.author ?? "runner"), this.turnInstructionId);
     const resultP = this.proc.waitResult();
@@ -308,6 +317,7 @@ export class AgentSession {
   interruptTurn(): void {
     if (!this.proc || this.proc.exited) return;
     this.interrupted = true;
+    this.approvalAbort.abort();
     this.sink.add(runnerEventItem("中断"), this.turnInstructionId);
     if (this.proc.busy) this.proc.interrupt();
   }
@@ -320,6 +330,7 @@ export class AgentSession {
   /** 閉じる（ターン中なら interrupt → 2 秒 → 標準入力を閉じる → 5 秒で SIGTERM。D-67） */
   async close(opts: { interrupt?: boolean } = {}): Promise<void> {
     if (this.activityTimer) clearTimeout(this.activityTimer);
+    this.approvalAbort.abort();
     if (this.proc) {
       await this.proc.stop({
         interrupt: opts.interrupt ?? true,
