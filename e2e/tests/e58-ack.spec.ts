@@ -7,10 +7,15 @@ import { expect, test } from "../helpers/fixtures.ts";
 import { expectStable, messageBySeq, onlyOn, sendFromComposer, uniqueMarker } from "../helpers/ui.ts";
 import type { BatonApi } from "../helpers/api.ts";
 
+/** 発言は最新 100 件しか取れないので、数え始めの seq より後だけを数える（CEO の発言 1 つで古い発言が窓から押し出される） */
+const baseSeq = new Map<string, number>();
+
 async function counts(api: BatonApi, threadIds: string[]) {
   const instructions = await api.list();
   const details = await Promise.all(instructions.slice(0, 10).map((i) => api.detail(i.id)));
-  const nonCeo = await Promise.all(threadIds.map(async (t) => (await api.messages(t)).filter((m) => m.authorKind !== "ceo").length));
+  const nonCeo = await Promise.all(
+    threadIds.map(async (t) => (await api.messages(t)).filter((m) => m.authorKind !== "ceo" && m.seq > (baseSeq.get(t) ?? 0)).length),
+  );
   return {
     instructions: instructions.length,
     tasks: details.reduce((n, d) => n + d.tasks.length, 0),
@@ -26,6 +31,7 @@ async function counts(api: BatonApi, threadIds: string[]) {
  */
 async function quietCounts(api: BatonApi, threadIds: string[]) {
   let last: unknown = null;
+  for (const t of threadIds) baseSeq.set(t, await api.lastSeq(t));
   for (let i = 0; i < 12; i++) {
     const busy = (await api.threads()).some((t) => t.status !== "idle");
     const now = await counts(api, threadIds);

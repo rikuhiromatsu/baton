@@ -36,6 +36,10 @@ test("E41 COO の present の直前にリーダーと方針を変えると、古
   const cooSessionId = final.sessionId;
   expect(cooSessionId, "COO の発言にセッション ID がある").toBeTruthy();
   const items = await api.transcript(cooSessionId!, { instructionId: created.id });
+  // COO の present が古い版（rev 1）で走りかけたなら [知らせ]（版の食い違い・話し中の保留）が渡る。
+  // COO のターンが始まるのがリーダーの報告より後なら、COO は [リーダーからの報告] を読んでから rev 2 で present する（D-79 の 3）。
+  // どちらでも古い前提の報告は出ない（上で確かめた）。どちらの道を通ったかはランナーの混み具合で変わる
   const notices = items.filter((i) => i.kind === "user" && JSON.stringify(i.body).includes(TURN_TAGS.notice));
-  expect(notices.length, "COO に [知らせ] が渡った").toBeGreaterThan(0);
+  const readReport = items.filter((i) => i.kind === "user" && JSON.stringify(i.body).includes(TURN_TAGS.leaderReport));
+  expect(notices.length + readReport.length, "COO に [知らせ] か [リーダーからの報告] が渡った").toBeGreaterThan(0);
 });
