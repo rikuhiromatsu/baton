@@ -1,5 +1,6 @@
 // COO の段階（設計書 5.2 段階 1: 振り分け、段階 5: 最終報告）。
 import { mkdir } from "node:fs/promises";
+import { restoreLineBreaks } from "./text.ts";
 import type { ProjectWithTeam } from "@baton/shared";
 import { workspaceDir } from "../config.ts";
 import { StageFailedError } from "../errors.ts";
@@ -37,7 +38,7 @@ export async function runRoute(ctx: RunContext): Promise<RouteResult> {
   if (action.kind === "answer_directly") {
     // 先に振り分けのイベントを書き、そのあと review へ（逆順だと review になった後に書けない）
     await ctx.events.emit({ taskId: null, agentId: ctx.coo.id, kind: "action", content: { stage: "route", action } });
-    await ctx.api.patchInstruction(ctx.id, { title: action.title, resultSummary: action.report.slice(0, 8000), status: "review" }, { signal: ctx.signal });
+    await ctx.api.patchInstruction(ctx.id, { title: action.title, resultSummary: restoreLineBreaks(action.report).slice(0, 8000), status: "review" }, { signal: ctx.signal });
     ctx.log.info("COO が直接回答しました", { instructionId: ctx.id });
     return "answered";
   }
@@ -120,6 +121,6 @@ export async function runFinal(ctx: RunContext, round: number): Promise<void> {
   const { action } = await callStage(ctx, { stage: "coo_final", role: "coo", messages, taskId: null, agentId: ctx.coo.id });
   await ctx.events.emit({ taskId: null, agentId: ctx.coo.id, kind: "action", content: { stage: "final", action } });
   await ctx.events.emit({ taskId: null, agentId: ctx.coo.id, kind: "summary", content: { stage: "final", text: action.report } });
-  await ctx.api.patchInstruction(ctx.id, { status: "review", resultSummary: action.report.slice(0, 8000) }, { signal: ctx.signal });
+  await ctx.api.patchInstruction(ctx.id, { status: "review", resultSummary: restoreLineBreaks(action.report).slice(0, 8000) }, { signal: ctx.signal });
   ctx.log.info("最終報告を出しました", { instructionId: ctx.id });
 }
