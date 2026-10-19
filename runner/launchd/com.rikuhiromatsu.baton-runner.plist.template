@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.rikuhiromatsu.baton-runner</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>{{REPO}}/runner/src/main.ts</string>
+  </array>
+  <key>WorkingDirectory</key><string>{{REPO}}/runner</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BATON_ENV_FILE</key><string>{{HOME}}/.config/baton/runner.env</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ExitTimeOut</key><integer>10</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>{{HOME}}/Library/Logs/baton/runner.log</string>
+  <key>StandardErrorPath</key><string>{{HOME}}/Library/Logs/baton/runner.err.log</string>
+</dict>
+</plist>
