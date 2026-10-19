@@ -132,7 +132,11 @@ export function* memberScript(ctx: TurnContext): Script {
     const file = t.artifacts[0]?.path ?? outputFile(t, scenarioA);
     const read = yield { kind: "tool", name: "Read", input: { file_path: path.join(ctx.cwd, file) } };
     const before = read?.ok ? (read.toolUseResult as { file?: { content?: string } }).file?.content ?? "" : "";
-    yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, file), content: `${before.replace(/\n*$/, "\n")}\n## 追加の依頼\n\n${followUp.text}\n` } };
+    const w = yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, file), content: `${before.replace(/\n*$/, "\n")}\n## 追加の依頼\n\n${followUp.text}\n` } };
+    if (!w?.ok) {
+      yield* finish(ctx, { kind: "give_up", reason: `追加の依頼の書き込みに失敗しました: ${firstLineOf(w?.content ?? "", 300)}` });
+      return;
+    }
     t.summary = `追加の依頼に対応しました: ${firstLineOf(followUp.text, 200)}`;
     yield* finish(ctx, { kind: "done", summary: t.summary, artifacts: t.artifacts.length ? t.artifacts : [{ path: file, title: "成果" }] });
     return;
@@ -154,7 +158,12 @@ export function* memberScript(ctx: TurnContext): Script {
     for (const rel of conflicted) {
       const r = yield { kind: "tool", name: "Read", input: { file_path: path.join(ctx.cwd, rel) } };
       const text = r?.ok ? ((r.toolUseResult as { file?: { content?: string } }).file?.content ?? "") : readFileSync(path.join(ctx.cwd, rel), "utf8");
-      yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, rel), content: resolveConflictText(text) } };
+      const w = yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, rel), content: resolveConflictText(text) } };
+      if (!w?.ok) {
+        // 完了にしない（再開でやり直せるように）
+        yield* finish(ctx, { kind: "give_up", reason: `衝突の解決を書けませんでした（${rel}）: ${firstLineOf(w?.content ?? "", 300)}` });
+        return;
+      }
     }
     yield* todo(ctx, ["衝突を確かめる", "衝突を解決する"], 2);
     t.completed = true;
@@ -189,7 +198,12 @@ export function* memberScript(ctx: TurnContext): Script {
 
   yield* todo(ctx, steps, 1);
   const file = outputFile(t, scenarioA);
-  yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, file), content: fileContent(t, scenarioA, file) } };
+  const w = yield { kind: "tool", name: "Write", input: { file_path: path.join(ctx.cwd, file), content: fileContent(t, scenarioA, file) } };
+  if (!w?.ok) {
+    // 成果を書けなかった: done にせず、完了の印も付けない（再開でやり直す）
+    yield* finish(ctx, { kind: "give_up", reason: `成果を書けませんでした（${file}）: ${firstLineOf(w?.content ?? "", 300)}` });
+    return;
+  }
   yield* todo(ctx, steps, 3);
 
   t.completed = true;

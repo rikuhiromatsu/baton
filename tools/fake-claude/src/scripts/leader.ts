@@ -1,6 +1,6 @@
 // リーダーの台本（DESIGN-v2 4.6・5.5・7.4・14 章・15.2）。最後に StructuredOutput（LeaderTurn）。
 import { TURN_TAGS, type CooReport, type LeaderAction, type LeaderTurn, type PlanTask } from "@baton/shared";
-import { ceoBody, firstLineOf, isAck, lastOf, linesOf, longText, rawMarkers, resolveInstruction } from "./common.ts";
+import { ceoBody, firstLineOf, isAck, lastOf, linesOf, longText, parseMarkers, rawMarkers, resolveInstruction } from "./common.ts";
 import { GENERIC_TEAM, SCENARIO_A_IDEAS, SCENARIO_A_NICHE_IDEAS, numbered } from "./coo.ts";
 import type { Script, TurnContext } from "./types.ts";
 
@@ -25,14 +25,14 @@ function task(ctx: TurnContext, t: Omit<PlanTask, "key">): PlanTask {
 }
 
 /** 依頼の本文に付いたマーカーをタスクの spec に引き継ぐ（メンバーの台本がそれを見る） */
-function carried(ctx: TurnContext): string {
-  const keep = rawMarkers(ctx.input).filter((m) => m !== "[ask-coo]" && m !== "[no-report]");
+function carried(ctx: TurnContext, extra: string | null = null): string {
+  const keep = rawMarkers(`${extra ?? ""}\n${ctx.input}`).filter((m) => m !== "[ask-coo]" && m !== "[no-report]");
   if (ctx.markers.has("scenario-a") && !keep.includes("[scenario-a]")) keep.unshift("[scenario-a]");
   return keep.length ? ` ${keep.join(" ")}` : "";
 }
 
-function planTasks(ctx: TurnContext, brief: string): PlanTask[] {
-  const tag = carried(ctx);
+function planTasks(ctx: TurnContext, brief: string, extra: string | null = null): PlanTask[] {
+  const tag = carried(ctx, extra);
   if (ctx.markers.has("scenario-a")) {
     return [
       task(ctx, { title: "題材のリサーチ", spec: `コーヒー紹介の題材を 10 個集め、research/ に書く。完了の条件: research/notes.md がある。${tag}`, assignee: "リサーチ", dependsOn: [], paths: ["research/"] }),
@@ -72,12 +72,17 @@ export function* leaderScript(ctx: TurnContext): Script {
     }
     if (ctx.markers.has("ask-coo") && ctx.session.flags.askedCoo !== true) {
       ctx.session.flags.askedCoo = true;
+      // 答え（[COO]）にはもとの依頼のマーカーが無いので覚えておく
+      ctx.session.flags.pendingBrief = brief;
       parts.push("進める前に COO に確認します。");
       actions.push({ type: "ask_coo", instructionId: ref?.id ?? null, question: "優先する観点はどれですか？" });
       continue;
     }
     if (!ref) continue;
-    const tasks = planTasks(ctx, brief.replace(/（指示 [0-9A-Za-z_-]+）$/, ""));
+    const pendingBrief = typeof ctx.session.flags.pendingBrief === "string" ? ctx.session.flags.pendingBrief : null;
+    delete ctx.session.flags.pendingBrief;
+    if (pendingBrief) for (const m of parseMarkers(pendingBrief, "leader")) ctx.markers.add(m);
+    const tasks = planTasks(ctx, (pendingBrief ?? brief).replace(/（指示 [0-9A-Za-z_-]+）$/, ""), pendingBrief);
     parts.push(scenarioA ? SCENARIO_A_LEADER.plan : `了解です。${tasks.map((t) => t.assignee).join("と")}で進めます`);
     actions.push({ type: "plan", instructionId: ref.id, newTitle: null, tasks });
   }

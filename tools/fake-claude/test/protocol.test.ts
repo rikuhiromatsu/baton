@@ -360,6 +360,24 @@ describe("メンバーの質問・追加の依頼（5.6）", () => {
     expect(out.ok && out.value.kind === "done" && out.value.summary).toContain("追加の依頼に対応しました");
   });
 
+  it("成果の Write が拒否されたら done にせず give_up、再開でやり直せる（Codex 指摘）", async () => {
+    const cwd = ws();
+    const session = { id: randomUUID(), resume: false };
+    const p = new FakeProc(roleArgs("member", { session, cwd, extra: ["--disallowedTools", "Write"] }), { cwd, env });
+    p.send(userInput(memberInput(cwd, "書く")));
+    await p.waitResults(1);
+    p.close();
+    await p.exited;
+    const out = parseTurnOutput("member", structuredOf(p.lines));
+    expect(out.ok && out.value.kind).toBe("give_up");
+    const again = startMember(cwd, "[ランナー] 続けて", { id: session.id, resume: true });
+    await again.p.waitResults(1);
+    again.p.close();
+    await again.p.exited;
+    const out2 = parseTurnOutput("member", structuredOf(again.p.lines));
+    expect(out2.ok && out2.value.kind).toBe("done");
+  });
+
   it("[giveup] は give_up", async () => {
     const cwd = ws();
     const { p } = startMember(cwd, memberInput(cwd, "無理な仕事 [giveup]"));

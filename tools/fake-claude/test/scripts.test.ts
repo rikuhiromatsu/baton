@@ -111,12 +111,14 @@ describe("リーダーの汎用の台本", () => {
   it("[ask-coo]: まず ask_coo、COO の答えで plan", async () => {
     const cwd = ws();
     const id = randomUUID();
-    const r1 = await runOnce(roleArgs("leader", { session: { id, resume: false }, cwd, stream: false, extra: [leaderInput("調べて [ask-coo]")] }), { cwd, env });
+    const r1 = await runOnce(roleArgs("leader", { session: { id, resume: false }, cwd, stream: false, extra: [leaderInput("調べて [ask-coo] [approve]")] }), { cwd, env });
     const v1 = parseTurnOutput("leader", structuredOf(r1.lines));
     expect(v1.ok && v1.value.actions[0]?.type).toBe("ask_coo");
-    const r2 = await runOnce(roleArgs("leader", { session: { id, resume: true }, cwd, stream: false, extra: [leaderInput("おまかせします [ask-coo]")] }), { cwd, env });
+    const r2 = await runOnce(roleArgs("leader", { session: { id, resume: true }, cwd, stream: false, extra: [leaderInput("おまかせします")] }), { cwd, env });
     const v2 = parseTurnOutput("leader", structuredOf(r2.lines));
     expect(v2.ok && v2.value.actions[0]?.type).toBe("plan");
+    const plan = v2.ok ? v2.value.actions[0] : undefined;
+    expect(plan?.type === "plan" && plan.tasks[0]?.spec).toContain("[approve]");
   });
 
   it("[メンバーの質問] → answer_member（セッション ID を拾う）", async () => {
