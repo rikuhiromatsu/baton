@@ -1,6 +1,6 @@
 // プロジェクト案を立てる・見送る（DESIGN-v2 3.2・12.2）
 import { Hono } from "hono";
-import { AcceptProposalInput, AcceptProposalOutput, COO_THREAD_ID } from "@baton/shared";
+import { AcceptProposalInput, AcceptProposalOutput, COO_THREAD_ID, GetProposalOutput } from "@baton/shared";
 import { getProject } from "../db/projects.ts";
 import { inboxInsertStatements } from "../db/threads.ts";
 import { notifyRunners, projectEvents, publish, threadEvents } from "../hub/broadcast.ts";
@@ -10,6 +10,13 @@ import { acceptProposal, getProposal } from "../services/projects.ts";
 import type { AppEnv } from "../types.ts";
 
 export const proposalRoutes = new Hono<AppEnv>();
+
+/** 1 つの案（再読み込みでカードを描き直す） */
+proposalRoutes.get("/:id", async (c) => {
+  const proposal = await getProposal(c.env.DB, c.req.param("id"));
+  if (!proposal) throw notFound("proposal not found");
+  return c.json(checked(c.env, GetProposalOutput, { proposal }));
+});
 
 proposalRoutes.post("/:id/accept", async (c) => {
   const input = await readJson(c, AcceptProposalInput);
