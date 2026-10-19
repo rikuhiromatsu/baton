@@ -86,7 +86,12 @@ export async function executeCooActions(
         case "delegate": {
           let project: ProjectWithTeam | null = null;
           let leaderThreadId: string | null = null;
-          if (action.project.mode === "new") {
+          const reuse = action.project.mode === "new" ? context.projects.find((p) => p.slug === (action.project as { slug: string }).slug && p.status === "active") : undefined;
+          if (reuse) {
+            // 同じ slug のプロジェクトが既にある（同じ依頼の 2 回目など）: それを使う
+            project = reuse;
+            leaderThreadId = leaderThreadIdOf(reuse.id);
+          } else if (action.project.mode === "new") {
             const created = await ctx.api.createProject({
               name: action.project.name,
               slug: action.project.slug,

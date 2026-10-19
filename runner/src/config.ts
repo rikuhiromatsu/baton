@@ -37,6 +37,7 @@ export type RunnerLimits = {
   codexTimeoutMs: number;
   gitLockRetryDelaysMs: number[];
   staleIndexLockMs: number;
+  quotaResumeMarginMs: number;
 };
 
 export function defaultLimits(): RunnerLimits {
@@ -66,6 +67,7 @@ export function defaultLimits(): RunnerLimits {
     codexTimeoutMs: 15 * 60 * 1000,
     gitLockRetryDelaysMs: [1000, 3000, 10_000],
     staleIndexLockMs: 10 * 60 * 1000,
+    quotaResumeMarginMs: LIMITS.quotaResumeMarginMs,
   };
 }
 
@@ -174,6 +176,7 @@ export function applyLimitOverrides(base: RunnerLimits, env: Record<string, stri
   // 設計書・E2E で使う短い名前（15.3）
   if (env.BATON_THREAD_IDLE_MS) out.threadIdleMs = num("BATON_THREAD_IDLE_MS", env.BATON_THREAD_IDLE_MS);
   if (env.BATON_APPROVAL_WAIT_MS) out.approvalWaitMs = num("BATON_APPROVAL_WAIT_MS", env.BATON_APPROVAL_WAIT_MS);
+  if (env.BATON_QUOTA_RESUME_MARGIN_MS) out.quotaResumeMarginMs = num("BATON_QUOTA_RESUME_MARGIN_MS", env.BATON_QUOTA_RESUME_MARGIN_MS);
   if (env.BATON_CONVERSATION_BREAK_MS) out.conversationBreakMs = num("BATON_CONVERSATION_BREAK_MS", env.BATON_CONVERSATION_BREAK_MS);
   return out;
 }

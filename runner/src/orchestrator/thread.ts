@@ -48,7 +48,16 @@ export function renderOrg(context: ThreadTurnContext): string {
 }
 
 function inboxEntries(inbox: readonly InboxItem[]) {
-  return inbox.map((i) => ({ kind: i.kind, instructionId: i.instructionId, payload: i.payload }));
+  return inbox.map((i) => {
+    // プロジェクトが立った知らせには ID を必ず入れる（COO が existing の delegate を出せるように）
+    if (i.kind === "project_created") {
+      const p = i.payload;
+      const id = typeof p.projectId === "string" ? p.projectId : null;
+      const text = typeof p.text === "string" ? p.text : "プロジェクトが立ちました";
+      if (id && !text.includes(id)) return { kind: i.kind, instructionId: i.instructionId, payload: { ...p, text: `${text}（id: ${id}）` } };
+    }
+    return { kind: i.kind, instructionId: i.instructionId, payload: i.payload };
+  });
 }
 
 /** 新しいセッションへの引き継ぎ（4.2: 直近 30 件の発言と開いている指示） */

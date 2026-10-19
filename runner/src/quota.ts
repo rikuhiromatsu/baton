@@ -3,6 +3,7 @@
 // - rejected / You've hit your … limit: blockedUntil（resetsAt + 60 秒、無ければ 30 分後）まで新しいターンを始めない
 import {
   EMPTY_QUOTA,
+  LIMITS,
   applyQuotaObservation,
   canStartMemberSession,
   canStartThreadTurn,
@@ -16,8 +17,10 @@ export class QuotaGate {
   private readonly listeners = new Set<(q: QuotaStatus) => void>();
 
   private readonly now: () => number;
-  constructor(now: () => number = Date.now) {
+  private readonly marginMs: number;
+  constructor(now: () => number = Date.now, marginMs: number = LIMITS.quotaResumeMarginMs) {
     this.now = now;
+    this.marginMs = marginMs;
   }
 
   get current(): QuotaStatus {
@@ -30,7 +33,10 @@ export class QuotaGate {
   }
 
   observe(obs: QuotaObservation): void {
-    this.set(applyQuotaObservation(this.status, obs, this.now()));
+    const next = applyQuotaObservation(this.status, obs, this.now());
+    // 戻る時刻の余裕は設定で変えられる（BATON_QUOTA_RESUME_MARGIN_MS。E2E は短く）
+    if (obs.status === "rejected" && obs.resetsAt !== null) next.blockedUntil = obs.resetsAt + this.marginMs;
+    this.set(next);
   }
 
   /** result の本文が枠切れの文だった */

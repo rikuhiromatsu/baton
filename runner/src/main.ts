@@ -38,7 +38,7 @@ export function createContext(opts: { config: RunnerConfig; log?: Logger; api?: 
     config,
     log,
     liveLog: new LiveLog(),
-    quota: new QuotaGate(opts.now),
+    quota: new QuotaGate(opts.now, config.limits.quotaResumeMarginMs),
     auth: new AuthGuard(),
     decisions: new DecisionWaiters(),
     profiles: async () => {
