@@ -1,21 +1,24 @@
 name: CI
 
-# テストだけを回す（デプロイは Mac mini から。設計書 D-23）。
+# テストだけを回す（デプロイは Mac mini から。v1 設計書 D-23）。
 # 外に繋がない（DESIGN-v2 15.1・D-60）: 本物の claude は呼ばず偽 claude（tools/fake-claude）、
-# 実際のプッシュサービスにも繋がない（偽のプッシュサービス）。Cloudflare の認証情報も使わない（D1・DO はローカルの workerd）。
-# 骨組み（V0）。中身は V4 が仕上げる。
+# 実際のプッシュサービスにも繋がない（E2E のヘルパーが立てる偽のプッシュサービス localhost:8799）。
+# Cloudflare の認証情報も使わない（D1・DO はローカルの workerd）。API キーも渡さない。
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2]
   pull_request:
 
 permissions:
   contents: read
 
 env:
-  # ランナーが起動する claude は常に偽物（本物の ~/.local/bin/claude は CI に無い）
+  # ランナーが起動する claude は常に偽物（本物の ~/.local/bin/claude は CI に無い）。e2e/helpers/runner.ts もこれ以外を拒む
   BATON_CLAUDE_BIN: ${{ github.workspace }}/tools/fake-claude/bin/claude
+  # 子プロセスに渡らないように空にしておく（ランナーは環境を許可リストで組み立てる。7.7）
+  ANTHROPIC_API_KEY: ""
+  CLOUDFLARE_API_TOKEN: ""
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,7 +26,7 @@ concurrency:
 
 jobs:
   check:
-    name: 型検査・ユニット・Workers 統合
+    name: 型検査・ユニット・Workers 統合・本番ビルドの検査
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -33,19 +36,30 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
-      - name: 型検査
+
+      - name: 型検査（shared・worker・web・runner・e2e）
         run: npm run typecheck
+      - name: 型検査（偽 claude）
+        run: |
+          if [ -f tools/fake-claude/tsconfig.json ]; then npx tsc -p tools/fake-claude; else echo "tools/fake-claude/tsconfig.json が無いので飛ばす"; fi
+
       - name: ユニット（shared・web・runner）
         run: npm run test:unit
-      - name: 偽 claude の自己テスト
-        run: npm test -w tools/fake-claude --if-present
+      - name: ユニット（偽 claude の自己テスト）
+        run: npm test -w tools/fake-claude
       - name: Workers 統合（workerd + D1 + DO）
         run: npm run test:worker -w app
+
+      # 本番と同じビルドに、テスト用ログイン・偽 claude・e2e の設定・秘密のファイルが混ざっていないこと（デプロイの最初と同じ検査）
+      - name: 本番ビルド
+        run: npm run build
+      - name: 本番の成果物にテスト用のものが無い
+        run: node scripts/assert-no-test-routes.mjs
 
   e2e:
     name: E2E (${{ matrix.project }})
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +78,12 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: 偽 claude が動く（本物の claude は使わない）
+        run: |
+          test -x "$BATON_CLAUDE_BIN" || chmod +x "$BATON_CLAUDE_BIN"
+          "$BATON_CLAUDE_BIN" --version
+          "$BATON_CLAUDE_BIN" auth status
+
       - name: Playwright のブラウザのキャッシュ
         uses: actions/cache@v4
         with:
@@ -75,8 +95,9 @@ jobs:
       - name: e2e 用の秘密（ダミー値）
         run: cp app/.dev.vars.e2e.example app/.dev.vars.e2e
 
-      # webServer（app の e2e:serve: e2e ビルド → ローカル D1 のマイグレーション → 8790 番）と
-      # ランナー（globalSetup が子プロセスで起動）は Playwright が立ち上げる
+      # webServer（app の e2e:serve: e2e ビルド → まっさらなローカル D1 のマイグレーション → 8790 番）と
+      # ランナー（globalSetup が偽 claude を渡して子プロセスで起動。作業フォルダと sample-repo は一時フォルダ）は Playwright が立ち上げる。
+      # 偽のプッシュサービス（8799 番）は E59 が立てて止める
       - name: E2E
         run: npm test -w e2e -- --project=${{ matrix.project }}
 
