@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => ({
     // e2e は専用の保存先を使い、毎回まっさらな D1 で始める（前回の使用量や指示に左右されないため）
     cloudflare({ persistState: mode === "e2e" ? { path: ".wrangler/state-e2e" } : true }),
     VitePWA({
+      // push の受け取りと通知のタップを自前の Service Worker（src/web/sw.ts）で扱う（設計書 v2 10.4）
+      strategies: "injectManifest",
+      srcDir: "src/web",
+      filename: "sw.ts",
       registerType: "autoUpdate",
       injectRegister: false,
       manifest: {
@@ -30,11 +34,8 @@ export default defineConfig(({ mode }) => ({
           { src: "/maskable-icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [{ urlPattern: /\/api\//, handler: "NetworkOnly" }],
       },
       devOptions: { enabled: false },
     }),
