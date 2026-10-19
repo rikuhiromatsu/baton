@@ -23,7 +23,7 @@ export class NetworkError extends ApiError {
   }
 }
 
-/** 409。その指示をもう握っていない（取消・判断待ち・lease 切れ）。即座に処理を打ち切る */
+/** 409。その指示・スレッドをもう握っていない（取消・lease 切れ）。即座に処理を打ち切る */
 export class ConflictError extends ApiError {
   constructor(message: string, details?: unknown) {
     super(409, "conflict", message, details);
@@ -31,39 +31,44 @@ export class ConflictError extends ApiError {
   }
 }
 
-/** 429 ai_quota。日の枠切れなら retryAt まで待つ。scope=instruction なら指示の上限 */
-export class AiQuotaError extends ApiError {
-  readonly retryAt: number | null;
-  readonly scope: string | null;
+/** 409 stale_revision。COO の present・relay の版が古い（4.6・D-79） */
+export class StaleRevisionError extends ApiError {
   constructor(message: string, details?: unknown) {
-    super(429, "ai_quota", message, details);
-    this.name = "AiQuotaError";
-    const d = (details ?? {}) as { retryAt?: unknown; scope?: unknown };
-    this.retryAt = typeof d.retryAt === "number" ? d.retryAt : null;
-    this.scope = typeof d.scope === "string" ? d.scope : null;
+    super(409, "stale_revision", message, details);
+    this.name = "StaleRevisionError";
   }
 }
 
-/** 上限（回数・トークン・時間など）に達した。指示を failed にし、error に「上限: 〇〇」 */
+/** 上限（推定額・時間・承認の回数など）に達した。指示を failed にし、error に「上限に達しました: 〇〇」 */
 export class LimitError extends Error {
   readonly what: string;
   constructor(what: string) {
-    super(`上限: ${what}`);
+    super(`上限に達しました: ${what}`);
     this.name = "LimitError";
     this.what = what;
   }
 }
 
-/** 段階が回復できない形で失敗した（AI が使えない、JSON が直らないなど） */
-export class StageFailedError extends Error {
+/** サブスク以外の認証・MCP の漏れ（7.7・D-48）。以後の起動を止める */
+export class AuthGuardError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "StageFailedError";
+    this.name = "AuthGuardError";
+  }
+}
+
+/** サブスクの枠切れ（9.2） */
+export class QuotaBlockedError extends Error {
+  readonly blockedUntil: number;
+  constructor(blockedUntil: number) {
+    super("サブスクの枠切れ");
+    this.name = "QuotaBlockedError";
+    this.blockedUntil = blockedUntil;
   }
 }
 
 /** AbortController.abort() に渡す理由 */
-export type StopReason = "cancel" | "shutdown" | "decision";
+export type StopReason = "cancel" | "shutdown" | "interrupt" | "approval_timeout" | "quota" | "auth";
 export class StopSignal extends Error {
   readonly reason: StopReason;
   constructor(reason: StopReason) {
@@ -80,31 +85,10 @@ export function stopReasonOf(signal: AbortSignal): StopReason | null {
 }
 
 export function isAbortError(err: unknown): boolean {
-  return (
-    err instanceof StopSignal ||
-    (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError"))
-  );
+  return err instanceof StopSignal || (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError"));
 }
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
-}
-
-/** CEO への判断を作った。この指示の処理はここで終える（5.7） */
-export class DecisionRequested extends Error {
-  readonly decisionId: string;
-  constructor(decisionId: string) {
-    super("CEO の判断待ち");
-    this.name = "DecisionRequested";
-    this.decisionId = decisionId;
-  }
-}
-
-/** work タスクがすべて失敗した（8.2.1: リーダーのまとめに進まず指示を failed） */
-export class AllWorkFailedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AllWorkFailedError";
-  }
 }

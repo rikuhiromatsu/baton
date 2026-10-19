@@ -1,7 +1,8 @@
 // tailnet 向けのローカル HTTP（設計書 1.4）。127.0.0.1 の BATON_LOCAL_PORT だけで待ち受け、
 // `tailscale serve --bg --https=443 http://127.0.0.1:7777` で tailnet 内だけに見せる。
-//   GET /status                 ランナーの状態（JSON）
-//   GET /logs/:id/stream        ライブログ（SSE。D1 に送る前の生ログ）
+//   GET /status                 ランナーの状態（JSON。claudeAuth・枠・動いているセッション）
+//   GET /sessions/:id/stream    セッションの生ログ（SSE。D1 に送る前の項目。8.4）。/logs/:id/stream も同じ
+//   GET /diff/:workspaceId      作業場所の差分（unified。13.7 のメンバーのタブ）
 //   GET /files/:slug/           作業フォルダの一覧（JSON）
 //   GET /files/:slug/*          作業フォルダのファイル本体（読み取り専用、inline）
 // 認証: Tailscale-User-Login が ALLOWED_TAILNET_LOGINS に無ければ 403（BATON_LOCAL_AUTH=off のときだけ省く。e2e 用）。
@@ -12,18 +13,32 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { ProjectSlugSchema } from "@baton/shared";
 import { workspaceDir, type RunnerConfig } from "./config.ts";
+import type { Workspace } from "@baton/shared";
+import { runGit } from "./git/git.ts";
+import { NotFoundError, listWorkspace, mimeFor } from "./lib/files.ts";
+import { PathGuardError, resolveInWorkspace } from "./lib/path-guard.ts";
 import type { LiveLog, Logger } from "./log.ts";
-import type { RunnerStats } from "./orchestrator/context.ts";
-import { listWorkspace, mimeFor } from "./tools/fs.ts";
-import { PathGuardError, resolveInWorkspace } from "./tools/path-guard.ts";
+
+export type LocalStatus = {
+  activeInstructionIds: string[];
+  activeThreadIds: string[];
+  activeSessionIds: string[];
+  lastHeartbeatAt: number | null;
+  hubConnected: boolean;
+  claudeAuth: string;
+  claudeVersion: string | null;
+  quota: unknown;
+  authStop: string | null;
+};
 
 export type LocalServerDeps = {
   config: RunnerConfig;
   liveLog: LiveLog;
   log: Logger;
-  stats: RunnerStats;
   /** 実行中の指示など、その時点の値を返す */
-  status: () => { activeInstructionIds: string[]; maxConcurrent: number; lastHeartbeatAt: number | null; hubConnected: boolean };
+  status: () => LocalStatus;
+  /** 見たことのある作業場所 */
+  workspace?: (id: string) => Workspace | undefined;
   startedAt?: number;
   /** SSE の keep-alive 間隔 */
   sseKeepAliveMs?: number;
@@ -106,12 +121,7 @@ export function createLocalServer(deps: LocalServerDeps): http.Server {
               version: config.version,
               startedAt,
               uptimeMs: Date.now() - startedAt,
-              activeInstructionIds: s.activeInstructionIds,
-              concurrent: s.activeInstructionIds.length,
-              maxConcurrent: s.maxConcurrent,
-              lastHeartbeatAt: s.lastHeartbeatAt,
-              hubConnected: s.hubConnected,
-              lastAiError: deps.stats.lastAiError,
+              ...s,
               disk,
             },
             cors,
@@ -119,7 +129,25 @@ export function createLocalServer(deps: LocalServerDeps): http.Server {
           return;
         }
 
-        const logMatch = /^\/logs\/([^/]+)\/stream$/.exec(path);
+        const diffMatch = /^\/diff\/([^/]+)$/.exec(path);
+        if (diffMatch) {
+          const ws = deps.workspace?.(decodeURIComponent(diffMatch[1] ?? ""));
+          if (!ws) {
+            sendJson(res, 404, { error: { code: "not_found", message: "not found" } }, cors);
+            return;
+          }
+          const ref = (await runGit(["-C", ws.repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${ws.branch}`], { allowFail: true })).stdout.trim();
+          if (!ref) {
+            sendJson(res, 404, { error: { code: "not_found", message: "not found" } }, cors);
+            return;
+          }
+          const diff = await runGit(["-C", ws.repoPath, "diff", "-M", `${ws.baseSha}..${ref}`], { allowFail: true });
+          res.writeHead(200, { ...cors, "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+          res.end(method === "HEAD" ? undefined : diff.stdout.slice(0, 2_000_000));
+          return;
+        }
+
+        const logMatch = /^\/(?:logs|sessions)\/([^/]+)\/stream$/.exec(path);
         if (logMatch) {
           const id = decodeURIComponent(logMatch[1] ?? "");
           if (!UUIDISH.test(id)) {
@@ -199,6 +227,10 @@ export function createLocalServer(deps: LocalServerDeps): http.Server {
 
         sendJson(res, 404, { error: { code: "not_found", message: "not found" } }, cors);
       } catch (err) {
+        if (err instanceof NotFoundError) {
+          sendJson(res, 404, { error: { code: "not_found", message: "not found" } }, cors);
+          return;
+        }
         if (err instanceof PathGuardError) {
           sendJson(res, 403, { error: { code: "forbidden", message: err.message } }, cors);
           return;

@@ -120,6 +120,8 @@ export const API_PATHS = {
   runnerTranscript: "/api/runner/transcript",
   runnerApprovals: "/api/runner/approvals",
   runnerDecisions: "/api/runner/decisions",
+  /** 1 件の判断・承認（decision.answered を受けたランナーが verdict・answer を読む。V3 で追加） */
+  runnerDecision: (id: string) => `/api/runner/decisions/${id}`,
   runnerArtifacts: "/api/runner/artifacts",
   runnerWorkspaces: "/api/runner/workspaces",
   runnerWorkspace: (id: string) => `/api/runner/workspaces/${id}`,
