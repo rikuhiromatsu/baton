@@ -12,7 +12,7 @@ import {
   RunnerInstructionState,
 } from "@baton/shared";
 import { getClaimed, getSummary, transitionAfterUpdate } from "../../db/instructions.ts";
-import { getCoo, getProject } from "../../db/projects.ts";
+import { getCoo, getProject, listProjects } from "../../db/projects.ts";
 import { loadInstructionParts } from "../../db/details.ts";
 import { parseRunnerStatusJson } from "../../db/runners.ts";
 import { notifyRunners, publish, publishRunnerStatus } from "../../hub/broadcast.ts";
@@ -143,7 +143,10 @@ runnerControlRoutes.get("/instructions/:id/state", async (c) => {
       .bind(id)
       .first(),
   ]);
-  const project = row.project_id ? await getProject(db, row.project_id) : null;
+  const [project, projects] = await Promise.all([
+    row.project_id ? getProject(db, row.project_id) : Promise.resolve(null),
+    listProjects(db),
+  ]);
   const state = {
     instruction: instruction!,
     project,
@@ -152,6 +155,8 @@ runnerControlRoutes.get("/instructions/:id/state", async (c) => {
     decisions: parts.decisions,
     routed: routed !== null,
     nextEventSeq: parts.lastEventSeq + 1,
+    // COO の振り分けで既存プロジェクトを選べるように（D-33）
+    activeProjects: projects.filter((p) => p.status === "active"),
   };
   return c.json(checked(c.env, RunnerInstructionState, state));
 });

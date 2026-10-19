@@ -298,6 +298,9 @@ describe("ランナーの進行（state・プロジェクト・タスク・成�
       },
     });
     expect(pRes.status).toBe(201);
+    // 既存プロジェクトが COO に見える（D-33）
+    const withProjects = RunnerInstructionState.parse(await (await runner(r, `/api/runner/instructions/${id}/state`)).json());
+    expect(withProjects.activeProjects?.map((p) => p.slug).sort()).toEqual(["test", "test-2", "test-3"]);
     const project = ProjectWithTeamSchema.parse(await pRes.json());
     expect(project.slug).toBe("test-3");
     expect(project.agents.map((a) => [a.role, a.name])).toEqual([

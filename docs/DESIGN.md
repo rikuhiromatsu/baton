@@ -1444,6 +1444,7 @@ flowchart LR
 | D-30 | ランナー状態は D1 のハートビート時刻で判定し、WebSocket の切断で即時に offline を配る | 自動応答の ping は DO を起こさないので、ハートビートの判定には HTTP の方が確実 | DO のアラームで監視（仕組みが増える） |
 | D-31 | ローカル・e2e のポートは 8790（設計時の 8787 から変更） | Mac mini では別プロジェクトの workerd が 8787 を常用していた。Google の OAuth に登録したローカルのリダイレクト URI（8787）は使わない（ローカルの実ログインは不要。E2E はテスト用ログイン） | 他のプロセスを止める（別プロジェクトの作業を壊す） |
 | D-32 | U0 で契約に足したもの: `InstructionSummary.notBefore`・`error`、`InstructionDetail.instruction.attempt`、`UsageToday.dailyTokenLimit`、`CreateProjectInput.instructionId` と `CreateAgentsInput`（lease の検査のため指示 ID を持たせる）、`AiChatInput.preferFallback`、`RunnerInstructionState.coo`・`routed`、`CreateTaskInput.id`（ランナー採番で冪等）、testid の `error-toast`・`report-text`・`usage-ring`・`skeleton-reload`・`menu-usage`・`archive-list`、固定文言の `閉じる`（シートの閉じるボタンの aria-label） | 一覧の時計アイコン・失敗理由、使用量リングの分母、ランナー用 API の lease 検査、再送の冪等性を、型だけで実装できるようにするため | 実装時に各単位が独自に足す（契約がずれる） |
+| D-33 | `RunnerInstructionState.activeProjects`（任意）を足し、Worker が active なプロジェクトとチームを返す | COO が既存プロジェクトを選ぶ材料がランナー用 API に無く、毎回新規プロジェクトを作ってしまうため（U3 の指摘） | ランナー用にプロジェクト一覧の API を別に作る（呼び出しが 1 回増える） |
 
 ---
 
