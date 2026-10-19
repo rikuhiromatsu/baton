@@ -59,6 +59,8 @@ export const API_PATHS = {
   threadLeave: (id: string) => `/api/threads/${id}/leave`,
   threadInterrupt: (id: string) => `/api/threads/${id}/interrupt`,
   threadReset: (id: string) => `/api/threads/${id}/reset`,
+  /** プロジェクト案を 1 件読む（発言の ref.proposalId から。画面の再読み込みでカードを描くため） */
+  proposal: (id: string) => `/api/project-proposals/${id}`,
   proposalAccept: (id: string) => `/api/project-proposals/${id}/accept`,
   proposalDecline: (id: string) => `/api/project-proposals/${id}/decline`,
 
@@ -215,6 +217,9 @@ export const ReadThreadInput = z.object({ seq: z.int().min(0) });
 export type ReadThreadInput = z.infer<typeof ReadThreadInput>;
 
 export const ResetThreadOutput = z.object({ message: ThreadMessageSchema });
+
+export const GetProposalOutput = z.object({ proposal: ProjectProposalSchema });
+export type GetProposalOutput = z.infer<typeof GetProposalOutput>;
 
 export const AcceptProposalInput = z.object({
   workspace: z.discriminatedUnion("kind", [z.object({ kind: z.literal("baton") }), z.object({ kind: z.literal("repo"), repoPath: z.string().min(1) })]).optional(),
