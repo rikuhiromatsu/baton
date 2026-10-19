@@ -166,3 +166,23 @@ describe("F1 Composer", () => {
     await waitFor(() => expect(screen.getByTestId(TESTIDS.instructionCard).getAttribute("data-failed-send")).toBeNull());
   });
 });
+
+describe("F1 Composer（上限）", () => {
+  it("8000 文字を超える入力は送らず、下書きも消さない", async () => {
+    const qc = makeQc();
+    seedList(qc, []);
+    const { calls } = recordingTransport(() => json(201, {}));
+    useDraft.setState({ text: "あ".repeat(8001) });
+    render(
+      <Wrap qc={qc}>
+        <Composer />
+      </Wrap>,
+    );
+    expect((screen.getByTestId(TESTIDS.composerSend) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(input(), { key: "Enter", metaKey: true });
+    await tick();
+    expect(calls).toHaveLength(0);
+    expect(useDraft.getState().text).toHaveLength(8001);
+    expect(input().getAttribute("maxlength")).toBe("8000");
+  });
+});

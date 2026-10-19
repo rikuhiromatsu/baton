@@ -207,8 +207,15 @@ export function getSocketFactory(): SocketFactory | undefined {
 }
 
 let current: Realtime | null = null;
+/** 開いている詳細シートの指示（接続より先にシートが開いても、つながった時点で購読する） */
+let desiredSubscription: string | null = null;
 export function setRealtime(rt: Realtime | null): void {
   current = rt;
+  rt?.subscribe(desiredSubscription);
+}
+export function subscribeInstruction(id: string | null): void {
+  desiredSubscription = id;
+  current?.subscribe(id);
 }
 export function getRealtime(): Realtime | null {
   return current;

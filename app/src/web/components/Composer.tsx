@@ -12,6 +12,8 @@ import { spring } from "../motion/tokens.ts";
 import { IconArrowUp } from "./Icons.tsx";
 
 const MAX_LINES = 8;
+/** CreateInstructionInput の上限（trim 後 8000 文字） */
+const MAX_CHARS = 8000;
 
 let composerEl: HTMLTextAreaElement | null = null;
 
@@ -48,7 +50,7 @@ export function Composer() {
   const bubble = useUi((s) => s.bubble);
   const ref = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const canSend = text.trim().length > 0;
+  const canSend = text.trim().length > 0 && text.trim().length <= MAX_CHARS;
 
   const resize = useCallback(() => {
     const el = ref.current;
@@ -62,7 +64,8 @@ export function Composer() {
 
   const send = useCallback(async () => {
     const body = useDraft.getState().text;
-    if (!body.trim()) return;
+    // 送れないもの（空・長すぎ）は下書きを消さずにそのまま残す
+    if (!body.trim() || body.trim().length > MAX_CHARS) return;
     const clientId = crypto.randomUUID();
     // 入力欄の泡 → 一覧のカード（layoutId）。泡を 1 フレーム描いてからカードを差し込む
     useUi.getState().setBubble({ clientId, text: body.trim() });
@@ -190,6 +193,7 @@ export function Composer() {
           aria-label={UI_TEXT.composerAria}
           rows={1}
           value={text}
+          maxLength={MAX_CHARS}
           enterKeyHint="enter"
           autoComplete="off"
           onChange={(e) => setText(e.target.value)}

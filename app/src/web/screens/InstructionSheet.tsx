@@ -15,7 +15,7 @@ import {
 import { performTransition } from "../api/actions.ts";
 import { findInstruction } from "../api/cache.ts";
 import { useInstructionDetail } from "../api/queries.ts";
-import { getRealtime } from "../api/ws.ts";
+import { subscribeInstruction } from "../api/ws.ts";
 import { ArtifactList } from "../components/ArtifactList.tsx";
 import { DecisionPanel } from "../components/DecisionPanel.tsx";
 import { EventLog } from "../components/EventLog.tsx";
@@ -46,8 +46,8 @@ export function InstructionSheet({ id, onClose }: Props) {
 
   // 開いている間はその指示のログを購読する
   useEffect(() => {
-    getRealtime()?.subscribe(id);
-    return () => getRealtime()?.subscribe(null);
+    subscribeInstruction(id);
+    return () => subscribeInstruction(null);
   }, [id]);
 
   useEffect(() => {

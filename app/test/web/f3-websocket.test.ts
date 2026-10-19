@@ -2,7 +2,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { InstructionDetail, ServerEvent, Task } from "@baton/shared";
 import { qk } from "../../src/web/api/keys.ts";
-import { Realtime, backoffDelay, type SocketLike } from "../../src/web/api/ws.ts";
+import { Realtime, backoffDelay, setRealtime, subscribeInstruction, type SocketLike } from "../../src/web/api/ws.ts";
+import { eventsQueryFn } from "../../src/web/api/queries.ts";
+import { recordingTransport, json } from "./helpers.tsx";
 import { listItems, makeQc, seedList, summary } from "./helpers.tsx";
 
 class FakeSocket implements SocketLike {
@@ -117,10 +119,16 @@ describe("F3 WebSocket → キャッシュ", () => {
     rt.stop();
   });
 
-  it("詳細を持っていなくても、一覧のタスク数は差分で動く", () => {
+  it("詳細を持っていないとき: 前の状態を知らないタスクは一覧を取り直し、知っているものは差分で動かす", () => {
+    vi.useFakeTimers();
     const { qc, rt, sock } = setup();
-    seedList(qc, [summary({ id: "i9", status: "running" })]);
+    seedList(qc, [summary({ id: "i9", status: "running", taskCounts: { total: 1, done: 0, running: 1, failed: 0 } })]);
+    const spy = vi.spyOn(qc, "invalidateQueries");
     sock.emit({ t: "task.upserted", task: task({ id: "x1", instructionId: "i9", status: "running" }) });
+    // 推測で足さない
+    expect(listItems(qc)[0]!.taskCounts).toEqual({ total: 1, done: 0, running: 1, failed: 0 });
+    vi.advanceTimersByTime(500);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["instructions"] });
     sock.emit({ t: "task.upserted", task: task({ id: "x1", instructionId: "i9", status: "done" }) });
     expect(listItems(qc)[0]!.taskCounts).toEqual({ total: 1, done: 1, running: 0, failed: 0 });
     rt.stop();
@@ -177,5 +185,34 @@ describe("F3 WebSocket → キャッシュ", () => {
     FakeSocket.all[2]!.open();
     expect(FakeSocket.all[2]!.sent.map((s) => JSON.parse(s))).toEqual([{ t: "subscribe", instructionId: "i1" }]);
     rt.stop();
+  });
+
+  it("接続より先に詳細を開いても、つながったら購読する", () => {
+    FakeSocket.all = [];
+    subscribeInstruction("early");
+    const qc = makeQc();
+    const rt = new Realtime({ qc, url: "ws://t", createSocket: (u) => new FakeSocket(u) });
+    setRealtime(rt);
+    rt.start();
+    FakeSocket.all[0]!.open();
+    expect(FakeSocket.all[0]!.sent.map((x) => JSON.parse(x))).toEqual([{ t: "subscribe", instructionId: "early" }]);
+    subscribeInstruction(null);
+    setRealtime(null);
+    rt.stop();
+  });
+
+  it("ログは 200 件を超えても全ページ取り、WebSocket で先に届いた分があっても欠けない", async () => {
+    const qc = makeQc();
+    const ev = (seq: number) => ({ id: `e${seq}`, instructionId: "big", taskId: null, agentId: null, seq, kind: "note", content: "x", model: null, tokensIn: null, tokensOut: null, durationMs: null, createdAt: 1 });
+    const { calls } = recordingTransport((c) => {
+      const after = Number(new URL(c.path, "http://x").searchParams.get("after"));
+      const items = Array.from({ length: 450 }, (_, i) => ev(i)).filter((e) => e.seq > after).slice(0, 200);
+      return json(200, { items });
+    });
+    // 先に WebSocket で 449 が届いていた
+    qc.setQueryData(qk.events("big"), { items: [ev(449)] });
+    const res = await eventsQueryFn(qc, "big")({});
+    expect(res.items).toHaveLength(450);
+    expect(calls).toHaveLength(3);
   });
 });

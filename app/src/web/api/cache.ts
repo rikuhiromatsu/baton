@@ -58,6 +58,16 @@ export function removeInstruction(qc: QueryClient, idOrClientId: string): void {
   }
 }
 
+let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+/** 短い間に続いたイベントは 1 回の取り直しにまとめる */
+function scheduleListRefetch(qc: QueryClient): void {
+  if (refetchTimer) return;
+  refetchTimer = setTimeout(() => {
+    refetchTimer = null;
+    void qc.invalidateQueries({ queryKey: qk.lists });
+  }, 500);
+}
+
 // タスク数は「work タスク」で数える（進捗線は work の完了数 / 総数）
 const taskStatusSeen = new Map<string, Task["status"]>();
 
@@ -95,6 +105,11 @@ export function upsertTask(qc: QueryClient, task: Task): void {
     return;
   }
   if (task.kind !== "work") return;
+  if (prev === undefined) {
+    // 前の状態を知らない（一覧はサーバーの数を持っている）ので推測で足さず、一覧を取り直す
+    scheduleListRefetch(qc);
+    return;
+  }
   // 詳細を持っていないときは、前に見た状態との差分で数を動かす
   patchSummaryEverywhere(qc, task.instructionId, (s) => {
     const c = { ...s.taskCounts };
@@ -103,11 +118,7 @@ export function upsertTask(qc: QueryClient, task: Task): void {
       else if (st === "running") c.running += d;
       else if (st === "failed") c.failed += d;
     };
-    if (prev === undefined) {
-      c.total += 1;
-    } else {
-      bucket(prev, -1);
-    }
+    bucket(prev, -1);
     bucket(task.status, +1);
     c.total = Math.max(c.total, c.done + c.running + c.failed);
     for (const k of ["done", "running", "failed"] as const) c[k] = Math.max(0, c[k]);

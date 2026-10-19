@@ -32,15 +32,27 @@ export function useInstructionDetail(id: string) {
   return useQuery({ queryKey: qk.detail(id), queryFn: ({ signal }) => api.getInstruction(id, signal), retry: noRetryOn4xx });
 }
 
-/** ログは手元の最後の seq から続きを取って足す（4.5 の欠落対策） */
+const EVENTS_PAGE = 200;
+const EVENTS_MAX_PAGES = 50;
+/** REST で途切れなく取れた最後の seq（WebSocket で先に届いた分とは別に持つ） */
+const fetchedThrough = new Map<string, number>();
+
+/** ログは途切れなく取れたところから続きを全部取って足す（4.5 の欠落対策） */
 export function eventsQueryFn(qc: QueryClient, id: string) {
   return async ({ signal }: { signal?: AbortSignal }): Promise<ListEventsOutput> => {
+    let after = fetchedThrough.get(id) ?? -1;
+    const fetched: ListEventsOutput["items"] = [];
+    for (let page = 0; page < EVENTS_MAX_PAGES; page++) {
+      const res = await api.listEvents(id, after, signal);
+      fetched.push(...res.items);
+      if (res.items.length > 0) after = Math.max(after, ...res.items.map((e) => e.seq));
+      if (res.items.length < EVENTS_PAGE) break;
+    }
+    fetchedThrough.set(id, after);
     const cached = qc.getQueryData<ListEventsOutput>(qk.events(id));
-    const after = cached && cached.items.length > 0 ? cached.items[cached.items.length - 1]!.seq : -1;
-    const res = await api.listEvents(id, after, signal);
     const merged = new Map<number, ListEventsOutput["items"][number]>();
     for (const e of cached?.items ?? []) merged.set(e.seq, e);
-    for (const e of res.items) merged.set(e.seq, e);
+    for (const e of fetched) merged.set(e.seq, e);
     return { items: [...merged.values()].sort((a, b) => a.seq - b.seq) };
   };
 }
