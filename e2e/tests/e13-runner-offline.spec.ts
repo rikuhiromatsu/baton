@@ -1,13 +1,12 @@
-// E13 ランナーを止める → ランナーの点が灰色 → 指示を送っても待機のまま → ランナー再起動で処理される（設計書 1.5）
+// E13 ランナーを止める → ランナーの点が灰色 → COO に話しかけても返事が無く指示もできない → ランナー再起動で処理される（v1 1.5）。
 // ランナーは全テストで共有なので、止めている時間は短くし、失敗しても必ず起動し直す。
-import { TESTIDS } from "@baton/shared";
+import { COO_THREAD_ID, TESTIDS } from "@baton/shared";
 import { PROJECTS, RUNNER_TIMEOUT } from "../helpers/env.ts";
 import { expect, test } from "../helpers/fixtures.ts";
 import { isRunnerRunning, startRunner, stopRunner } from "../helpers/runner.ts";
-import { cardById } from "../helpers/swipe.ts";
-import { byTestId, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
+import { byTestId, cardInPanel, expectMessageOnScreen, expectStable, onlyOn, uniqueMarker } from "../helpers/ui.ts";
 
-test("E13 ランナーが止まっている間は待機のまま、再起動すると処理される", async ({ page, api }, testInfo) => {
+test("E13 ランナーが止まっている間は COO が返事をせず、再起動すると処理される", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.desktop]);
   const marker = uniqueMarker("E13", testInfo);
 
@@ -20,18 +19,26 @@ test("E13 ランナーが止まっている間は待機のまま、再起動す�
     // ランナーの WebSocket が閉じると、DO が即座に offline を配る
     await expect(dot).toHaveAttribute("data-online", "false", { timeout: 20_000 });
 
+    const start = await api.lastSeq(COO_THREAD_ID);
     const input = byTestId(page, TESTIDS.composerInput);
-    await input.fill(`${marker} ランナー停止中の指示`);
+    await input.fill(`${marker} ランナー停止中の依頼`);
     await byTestId(page, TESTIDS.composerSend).click();
-    const created = await api.findByMarker(marker);
-    const card = cardById(page, created.id);
-    await expect(card).toHaveAttribute("data-status", "queued");
-    await expectStable(() => card.getAttribute("data-status"), 4_000, "ランナーが止まっている間は待機のまま");
-    expect(await api.status(created.id)).toBe("queued");
+    await expectMessageOnScreen(page, { author: "ceo", text: marker, afterSeq: start, status: null }, 15_000);
+    await expectStable(
+      async () => ({
+        coo: (await api.findMessages(COO_THREAD_ID, { authorKind: "coo", afterSeq: start, status: null })).length,
+        instructions: (await api.list()).filter((i) => i.body.includes(marker)).length,
+      }),
+      4_000,
+      "ランナーが止まっている間は COO の返事も指示も無い",
+    );
+    expect((await api.cooThread()).status).toBe("queued");
 
     startRunner();
     await expect(dot).toHaveAttribute("data-online", "true", { timeout: 30_000 });
-    await expect(card).toHaveAttribute("data-status", "review", { timeout: RUNNER_TIMEOUT });
+    await expectMessageOnScreen(page, { author: "coo", afterSeq: start }, RUNNER_TIMEOUT);
+    const created = await api.findByMarker(marker);
+    await expect(await cardInPanel(page, testInfo, created.id)).toHaveAttribute("data-status", "review", { timeout: RUNNER_TIMEOUT });
   } finally {
     if (!isRunnerRunning()) startRunner();
   }

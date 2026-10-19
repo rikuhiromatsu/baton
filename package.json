@@ -14,7 +14,7 @@
   },
   "scripts": {
     "dev": "npm run dev -w app",
-    "typecheck": "tsc -p packages/shared && tsc -p app/tsconfig.worker.json && tsc -p app/tsconfig.web.json && tsc -p runner && tsc -p e2e",
+    "typecheck": "tsc -p packages/shared && tsc -p app/tsconfig.worker.json && tsc -p app/tsconfig.web.json && tsc -p runner && tsc -p e2e && tsc -p tools/fake-claude",
     "test": "vitest run && npm run test:worker -w app",
     "test:unit": "vitest run",
     "test:e2e": "npm test -w e2e",

@@ -1,48 +1,36 @@
-// E17 横幅 390px で横スクロールが出ない、入力欄が safe-area の上にある（設計書 7.4・7.10）
-import { TESTIDS } from "@baton/shared";
+// E17 横幅 390px で横スクロールが出ない、入力欄が safe-area の上にある（v1 7.4・7.10、DESIGN-v2 13.13）。
+// 画面ごとの横スクロールは E57 で全画面を見る。ここは会話の画面で、長い発言・長い入力でもはみ出さないこと
+import { COO_THREAD_ID, TESTIDS } from "@baton/shared";
 import { PROJECTS } from "../helpers/env.ts";
 import { expect, test } from "../helpers/fixtures.ts";
-import { cardById } from "../helpers/swipe.ts";
-import { byTestId, onlyOn, uniqueMarker } from "../helpers/ui.ts";
+import { byTestId, expectMessageOnScreen, expectNoHorizontalScroll, onlyOn, uniqueMarker } from "../helpers/ui.ts";
 
 test("E17 iPhone の幅で横にはみ出さず、入力欄が safe-area より上にある", async ({ page, api }, testInfo) => {
   onlyOn(testInfo, [PROJECTS.iphoneWebkit]);
-  // 区切りの無い長い本文のカードがあっても、横にはみ出さないこと
+  // 区切りの無い長い本文の発言（とそこから生まれるカード）があっても、横にはみ出さないこと
   const marker = uniqueMarker("E17", testInfo);
-  const created = await api.createInstruction(`${marker}${"x".repeat(240)}`);
+  const start = await api.lastSeq(COO_THREAD_ID);
+  await api.sayToCoo(`${marker}${"x".repeat(240)}`);
 
   await page.goto("/");
   const input = byTestId(page, TESTIDS.composerInput);
   await expect(input).toBeVisible();
-  await expect(cardById(page, created.id)).toBeVisible();
+  await expectMessageOnScreen(page, { author: "ceo", text: marker, afterSeq: start, status: null }, 15_000);
 
-  const layout = () =>
+  const safeBottom = () =>
     page.evaluate(() => {
       const probe = document.createElement("div");
       probe.style.cssText = "position:fixed;left:0;bottom:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom, 0px)";
       document.body.appendChild(probe);
-      const safeBottom = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+      const v = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
       probe.remove();
-      window.scrollTo(200, window.scrollY);
-      const scrollX = window.scrollX;
-      window.scrollTo(0, window.scrollY);
-      return {
-        innerWidth: window.innerWidth,
-        innerHeight: window.innerHeight,
-        docWidth: document.documentElement.scrollWidth,
-        bodyWidth: document.body.scrollWidth,
-        scrollX,
-        safeBottom,
-      };
+      return { safeBottom: v, innerWidth: window.innerWidth, innerHeight: window.innerHeight };
     });
 
   const check = async () => {
-    const l = await layout();
+    const l = await safeBottom();
     expect(l.innerWidth).toBe(390);
-    expect(l.docWidth, "文書の横幅が画面幅を超えない").toBeLessThanOrEqual(l.innerWidth);
-    expect(l.bodyWidth, "body の横幅が画面幅を超えない").toBeLessThanOrEqual(l.innerWidth);
-    expect(l.scrollX, "横にスクロールできない").toBe(0);
-
+    await expectNoHorizontalScroll(page, "会話");
     for (const target of [input, byTestId(page, TESTIDS.composerSend)]) {
       const box = await target.boundingBox();
       expect(box).not.toBeNull();
