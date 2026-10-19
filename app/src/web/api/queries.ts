@@ -47,9 +47,13 @@ export function messagesQueryFn(qc: QueryClient, threadId: string) {
     const cached = qc.getQueryData<ListMessagesOutput>(qk.messages(threadId));
     if (!cached) return res;
     const oldest = res.items[0]?.seq ?? Infinity;
-    // 前に読み込んだ古い発言（上へスクロールして足した分）は残す
+    const newest = res.items.at(-1)?.seq ?? -1;
+    const inResponse = new Set(res.items.map((m) => m.id));
+    // キャッシュは全部まぜる（取り直しの間に WebSocket で届いた新しい発言・新しい版を消さない。版の新しい方が勝つ）。
+    // ただし応答の範囲にあって応答に無い streaming の発言は、消された空の発言なので落とす
+    const kept = cached.items.filter((m) => !(m.status === "streaming" && m.seq >= oldest && m.seq <= newest && !inResponse.has(m.id)));
     const older = cached.items.filter((m) => m.seq < oldest);
-    return { items: mergeMessages(older, res.items), hasMoreBefore: older.length > 0 ? cached.hasMoreBefore : res.hasMoreBefore };
+    return { items: mergeMessages(kept, res.items), hasMoreBefore: older.length > 0 ? cached.hasMoreBefore : res.hasMoreBefore };
   };
 }
 

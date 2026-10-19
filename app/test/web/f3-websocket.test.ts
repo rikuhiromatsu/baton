@@ -171,3 +171,19 @@ describe("F3 接続", () => {
     expect([0, 1, 2, 10].map(backoffDelay)).toEqual([1000, 2000, 4000, 30000]);
   });
 });
+
+describe("F3 取り直しとイベントの重なり", () => {
+  it("取り直しの間に届いた新しい発言と新しい版を消さない（Codex 指摘）", async () => {
+    const { messagesQueryFn } = await import("../../src/web/api/queries.ts");
+    const { recordingTransport, json } = await import("./helpers.tsx");
+    const qc = makeQc();
+    const done = message({ seq: 2, status: "complete", body: "完成", updatedAt: 200 });
+    const later = message({ seq: 3, body: "新しい" });
+    const first = message({ seq: 1 });
+    qc.setQueryData<ListMessagesOutput>(qk.messages(COO_THREAD_ID), { items: [first, done, later], hasMoreBefore: false });
+    recordingTransport(() => json(200, { items: [first, { ...done, status: "streaming", body: "完", updatedAt: 100 }], hasMoreBefore: false }));
+    const out = await messagesQueryFn(qc, COO_THREAD_ID)({});
+    expect(out.items.map((m) => m.seq)).toEqual([1, 2, 3]);
+    expect(out.items[1]!.body).toBe("完成");
+  });
+});

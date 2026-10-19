@@ -158,7 +158,12 @@ export function SidebarContent({ mode, onNavigate }: { mode: SidebarMode; onNavi
             data-testid={TESTIDS.sidebarToggle}
             aria-label={UI_TEXT_V2.sidebar.drawerAria}
             aria-keyshortcuts="Meta+Backslash"
-            onClick={() => useUi.getState().setSidebarCollapsed(!useUi.getState().sidebarCollapsed)}
+            onClick={() => {
+              // 中間幅（レールが既定）は重ねて開閉、広い画面はレールとの切り替え
+              const mid = typeof window !== "undefined" && !(window.matchMedia?.("(min-width: 1280px)").matches ?? true);
+              if (mid) useUi.getState().setDrawerOpen(!useUi.getState().drawerOpen);
+              else useUi.getState().setSidebarCollapsed(!useUi.getState().sidebarCollapsed);
+            }}
           >
             <IconSidebar size={18} />
           </button>

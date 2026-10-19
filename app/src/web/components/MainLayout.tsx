@@ -103,7 +103,6 @@ export function MainLayout() {
   const threads = useThreads();
   const session = useSession();
   const quota = useQuota(session.data !== undefined);
-  const [midOpen, setMidOpen] = useState(false);
   const lastBase = useRef<string>("/");
   const lastCooProject = useRef<string | null>(null);
   const [settledKey, setSettledKey] = useState<string | null>(null);
@@ -136,7 +135,7 @@ export function MainLayout() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "\\" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        if (bp === "mid") setMidOpen((v) => !v);
+        if (bp === "mid") useUi.getState().setDrawerOpen(!useUi.getState().drawerOpen);
         else useUi.getState().setSidebarCollapsed(!useUi.getState().sidebarCollapsed);
       }
     };
@@ -144,20 +143,10 @@ export function MainLayout() {
     return () => window.removeEventListener("keydown", onKey);
   }, [bp]);
 
-  // 中間幅: レールのトグルで重ねて開く
+  // 中間幅: レールのボタンで重ねて開く（drawerOpen を使う）。画面を移ったら閉じる
+  const midOpen = useUi((st) => st.drawerOpen) && bp === "mid";
   useEffect(() => {
-    if (bp !== "mid") setMidOpen(false);
-  }, [bp]);
-  const sidebarCollapsedToggle = useUi((s) => s.sidebarCollapsed);
-  useEffect(() => {
-    if (bp === "mid") setMidOpen(!sidebarCollapsedToggle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidebarCollapsedToggle]);
-  useEffect(() => {
-    if (bp === "mid") {
-      setMidOpen(false);
-      useUi.getState().setSidebarCollapsed(true);
-    }
+    if (bp === "mid") useUi.getState().setDrawerOpen(false);
   }, [pathname, bp]);
 
   // モバイル: 画面の左端から右へのスワイプ（リーダーのスレッドでは COO に戻る。ほかはドロワー）。

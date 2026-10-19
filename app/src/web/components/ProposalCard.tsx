@@ -21,7 +21,23 @@ function initialChoice(p: ProjectProposal): Choice {
 export function ProposalCard({ proposalId, now }: { proposalId: string; now: number }) {
   const q = useProposal(proposalId);
   const p = q.data;
-  if (!p) return <div className="proposal-card proposal-card--loading glass glass--card" aria-busy="true"><div className="sk sk--line" /><div className="sk sk--line sk--short" /></div>;
+  if (!p) {
+    // 読めないとき（古い Worker・消えた案）は見出しだけの小さなカードにする
+    if (q.isError)
+      return (
+        <article className="proposal-card proposal-card--superseded glass glass--card" data-testid={TESTIDS.proposalCard} data-proposal-id={proposalId} data-status="superseded">
+          <header className="proposal__head">
+            <span className="proposal__eyebrow">{UI_TEXT_V2.proposal.title}</span>
+          </header>
+        </article>
+      );
+    return (
+      <div className="proposal-card proposal-card--loading glass glass--card" aria-busy="true">
+        <div className="sk sk--line" />
+        <div className="sk sk--line sk--short" />
+      </div>
+    );
+  }
   return <ProposalCardBody proposal={p} now={now} />;
 }
 
