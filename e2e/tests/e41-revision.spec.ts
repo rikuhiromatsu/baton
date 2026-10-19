@@ -35,7 +35,10 @@ test("E41 COO の present の直前にリーダーと方針を変えると、古
   // COO のセッションのトランスクリプトに「方針が変わった」の [知らせ] が入っている（ランナーが書いた user の項目）
   const cooSessionId = final.sessionId;
   expect(cooSessionId, "COO の発言にセッション ID がある").toBeTruthy();
-  const items = await api.transcript(cooSessionId!, { instructionId: created.id });
+  // COO のスレッドは全テストで 1 本なので、ほかの指示の知らせと 1 つの入力にまとまることがある（そのときの user の項目は別の指示に付く）。
+  // 指示で絞らずに最新のページを取り、この指示の短い ID（「（指示 xxxxxxxx）」）を含む入力を探す
+  const id8 = created.id.slice(0, 8);
+  const items = (await api.transcript(cooSessionId!)).filter((i) => JSON.stringify(i.body).includes(id8));
   // COO の present が古い版（rev 1）で走りかけたなら [知らせ]（版の食い違い・話し中の保留）が渡る。
   // COO のターンが始まるのがリーダーの報告より後なら、COO は [リーダーからの報告] を読んでから rev 2 で present する（D-79 の 3）。
   // どちらでも古い前提の報告は出ない（上で確かめた）。どちらの道を通ったかはランナーの混み具合で変わる
