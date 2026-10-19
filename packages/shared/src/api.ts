@@ -47,8 +47,14 @@ export const API_PATHS = {
   runnerArtifacts: "/api/runner/artifacts",
   runnerDecisions: "/api/runner/decisions",
   runnerAiChat: "/api/runner/ai/chat",
+} as const;
 
-  /** e2e 環境だけ（設計書 6.5）。本番では 404 */
+/**
+ * e2e 環境だけ（設計書 6.5）。本番では 404。
+ * API_PATHS と分けてあるのは、本番の成果物に "/api/test/" の文字列を残さないため（assert-no-test-routes）。
+ * Worker は test-only.ts（e2e ビルドでだけ読み込む）からしか参照しないこと。
+ */
+export const TEST_API_PATHS = {
   testLogin: "/api/test/login",
   testRunnerToken: "/api/test/runner-token",
 } as const;
