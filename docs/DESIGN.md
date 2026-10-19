@@ -1,5 +1,7 @@
 # Baton 設計書
 
+> v2 は [DESIGN-v2.md](./DESIGN-v2.md)
+
 - 版: 1.0（2026-10-20）
 - 対象: 実装担当エージェント、本人（CEO）
 - 付録: [`docs/schema.sql`](./schema.sql)（D1 スキーマ全文。`app/migrations/0001_init.sql` に同じ内容を置く）
