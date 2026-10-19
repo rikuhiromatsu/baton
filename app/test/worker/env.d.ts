@@ -6,6 +6,8 @@ declare global {
   namespace Cloudflare {
     interface Env extends WorkerEnv {
       TEST_MIGRATIONS: D1Migration[];
+      /** wrangler.jsonc の assets（JSON 文字列） */
+      TEST_ASSETS_CONFIG: string;
     }
   }
 }

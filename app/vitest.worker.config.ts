@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig, type Plugin } from "vitest/config";
@@ -24,12 +25,16 @@ export default defineConfig({
     e2eBuildMode(),
     cloudflareTest(async () => {
       const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrations"));
+      // W17 用: wrangler.jsonc の assets 設定（コメントを落として読む）
+      const wranglerText = readFileSync(path.join(import.meta.dirname, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+      const assetsConfig = JSON.stringify((JSON.parse(wranglerText) as { assets?: unknown }).assets ?? null);
       return {
         wrangler: { configPath: "./wrangler.jsonc", environment: "e2e" },
         miniflare: {
           // .dev.vars.e2e は git 管理外なので、CI でも同じ値になるようここで与える
           bindings: {
             TEST_MIGRATIONS: migrations,
+            TEST_ASSETS_CONFIG: assetsConfig,
             E2E_TEST_SECRET: "e2e-local-secret",
             ALLOWED_EMAILS: "ceo@example.com, Second@Example.com",
             GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",

@@ -66,11 +66,9 @@ if (import.meta.env.MODE === "e2e") {
       return c.json(errorBody("not_found", "not found"), 404);
     }
     const { testOnlyRoutes } = await import("./routes/test-only.ts");
-    const sub = new Hono<AppEnv>();
-    sub.onError(onError);
-    sub.notFound(onNotFound);
-    sub.route("/api/test", testOnlyRoutes);
-    return sub.fetch(c.req.raw, c.env);
+    testOnlyRoutes.onError(onError);
+    testOnlyRoutes.notFound(onNotFound);
+    return testOnlyRoutes.fetch(c.req.raw, c.env);
   });
 }
 
