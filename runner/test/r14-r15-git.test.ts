@@ -82,6 +82,21 @@ describe("R14 既存リポジトリ", () => {
   }, 30_000);
 });
 
+describe("差分の一覧", () => {
+  it("日本語のファイル名を引用しない", async () => {
+    env = await makeEnv();
+    const repo = await makeSampleRepo(env.dir, "jp");
+    const base = git(repo, "rev-parse", "HEAD");
+    await (await import("node:fs/promises")).mkdir(path.join(repo, "台本"));
+    await writeFile(path.join(repo, "台本/01_酸味.md"), "a\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "jp");
+    const { diffSince } = await import("../src/git/git.ts");
+    const d = await diffSince(repo, base);
+    expect(d.stat).toEqual([{ path: "台本/01_酸味.md", added: 1, removed: 0, change: "A" }]);
+  });
+});
+
 describe("R15 Baton 専用", () => {
   it("git init -b main と初期コミット（.baton/history/ は .gitignore）。確定で main に --no-ff、worktree と baton/* を消す", async () => {
     env = await makeEnv();

@@ -47,6 +47,18 @@ export function renderOrg(context: ThreadTurnContext): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** リーダーのチーム（plan の assignee に使う名前。実物で、知らないと COO に聞きに行った） */
+export function teamText(project: ProjectWithTeam): string {
+  const members = project.agents.filter((a) => a.active && a.role === "member");
+  const leader = project.agents.find((a) => a.active && a.role === "leader");
+  return [
+    `## チーム（プロジェクト「${project.name}」）`,
+    `- リーダー（あなた）: ${leader?.name ?? "リーダー"}`,
+    ...members.map((m) => `- メンバー: ${m.name}（${m.profile ?? "generalist"}）${m.specialty ? `: ${m.specialty}` : ""}`),
+    "plan の assignee には、上のメンバーの名前をそのまま書く。",
+  ].join("\n");
+}
+
 function inboxEntries(inbox: readonly InboxItem[]) {
   return inbox.map((i) => {
     // プロジェクトが立った知らせには ID を必ず入れる（COO が existing の delegate を出せるように）
@@ -130,7 +142,7 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
         addDirs = [body, paths.worktrees];
         denyWrite = [body, paths.worktrees, paths.projects];
       }
-      const setup = await roleSetup(ctx, { role, project, repoDir });
+      const setup = await roleSetup(ctx, { role, project, repoDir, extra: role === "leader" ? teamText(project!) : null });
       if (!resume) {
         await ctx.api.createSession({
           id: sessionId,

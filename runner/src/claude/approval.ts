@@ -51,8 +51,10 @@ export function decidePermission(input: {
     return { kind: "deny", message: "その場所は読めません" };
   }
   if (toolName === "Bash") {
-    if (input.role === "leader" && typeof toolInput.command === "string" && isReadOnlyGit(toolInput.command, [path.join(input.dataDir, "worktrees"), ...(input.readRoots ?? [])])) {
-      return { kind: "allow" };
+    // 読み取りの git（cd・-C 付き・&& のつなぎは許可ルールの前方一致に当たらず承認に来る。実物で確認）
+    if (typeof toolInput.command === "string") {
+      const roots = input.role === "leader" ? [path.join(input.dataDir, "worktrees"), ...(input.readRoots ?? [])] : input.role === "member" ? [cwd] : [];
+      if (roots.length && isReadOnlyGit(toolInput.command, roots, input.role === "member")) return { kind: "allow" };
     }
     if (input.role === "member") return { kind: "ask" };
     return { kind: "deny", message: "この役割では許可リスト外のコマンドは使えません" };
@@ -76,15 +78,29 @@ export function approvalQuestion(toolName: string, toolInput: Record<string, unk
 }
 
 /**
- * リーダーの読み取りの git（「cd <dir> && git log …」「git -C <dir> diff --stat」）。
- * dir は worktrees かプロジェクトの本体の中だけ。シェルのつなぎ・書き出し（; | > < ` $( 改行・--output）は許さない。
+ * 読み取りの git（「cd <dir> && git log …」「git -C <dir> diff --stat && git -C <dir> show …」）。
+ * && でつないだ各部分が、roots の中への cd か、roots の中の log・diff・show・status だけのとき true。
+ * -C も cd も無い git は cwdInRoots のときだけ。シェルのつなぎ・書き出し（; | & > < ` $( 改行・--output・-c）は許さない。
  */
-export function isReadOnlyGit(command: string, roots: readonly string[]): boolean {
+export function isReadOnlyGit(command: string, roots: readonly string[], cwdInRoots = false): boolean {
   const c = command.trim();
-  if (/[;|&><`\n\r]|\$\(|--output|--ext-diff|--textconv|-c\s|--exec/.test(c.replace(/&&/, ""))) return false;
-  const m = /^(?:cd\s+("[^"]+"|'[^']+'|\S+)\s*&&\s*)?git(?:\s+-C\s+("[^"]+"|'[^']+'|\S+))?\s+(log|diff|show|status)(?:\s|$)/.exec(c);
-  if (!m) return false;
-  const dirs = [m[1], m[2]].filter((d): d is string => !!d).map((d) => d.replace(/^["']|["']$/g, ""));
-  if (dirs.length === 0) return false;
-  return dirs.every((d) => path.isAbsolute(d) && roots.some((r) => inside(r, path.resolve(d))));
+  const parts = c.split("&&").map((x) => x.trim());
+  if (parts.some((x) => x === "" || /[;|&><`\n\r]|\$\(|--output|--ext-diff|--textconv|--exec|(?:^|\s)-c\s/.test(x))) return false;
+  const unq = (d: string) => d.replace(/^["']|["']$/g, "");
+  const ok = (d: string) => path.isAbsolute(unq(d)) && roots.some((r) => inside(r, path.resolve(unq(d))));
+  let located = cwdInRoots;
+  let sawGit = false;
+  for (const x of parts) {
+    const cd = /^cd\s+("[^"]+"|'[^']+'|\S+)$/.exec(x);
+    if (cd) {
+      if (!ok(cd[1]!)) return false;
+      located = true;
+      continue;
+    }
+    const g = /^git(?:\s+-C\s+("[^"]+"|'[^']+'|\S+))?\s+(log|diff|show|status)(?:\s|$)/.exec(x);
+    if (!g) return false;
+    if (g[1] ? !ok(g[1]) : !located) return false;
+    sawGit = true;
+  }
+  return sawGit;
 }

@@ -31,6 +31,10 @@ function gitEnv(): NodeJS.ProcessEnv {
   env.GIT_TERMINAL_PROMPT = "0";
   env.GIT_OPTIONAL_LOCKS = "0";
   env.LC_ALL = "C";
+  // 日本語のパスを "\345…" と引用しない（差分の一覧・衝突のファイル名。実物で確認）
+  env.GIT_CONFIG_COUNT = "1";
+  env.GIT_CONFIG_KEY_0 = "core.quotepath";
+  env.GIT_CONFIG_VALUE_0 = "false";
   return env;
 }
 

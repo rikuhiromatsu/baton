@@ -38,6 +38,9 @@ describe("R2' 承認", () => {
     const leader = { ...base, role: "leader" as const, cwd: "/d/leaders/p", readRoots: ["/Users/r/projects/app"] };
     expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: "cd /d/worktrees/x/p/integration && git diff --stat" } }).kind).toBe("allow");
     expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: "git -C /Users/r/projects/app log --oneline -5" } }).kind).toBe("allow");
+    // メンバーは自分の worktree の中だけ（&& でつないだ読み取りも）
+    expect(decidePermission({ ...base, role: "member", toolName: "Bash", toolInput: { command: "git -C /d/worktrees/x/p/t1-r1 show --stat HEAD && git -C /d/worktrees/x/p/t1-r1 status --short" } }).kind).toBe("allow");
+    expect(decidePermission({ ...base, role: "member", toolName: "Bash", toolInput: { command: "git -C /d/worktrees/x/p/t2-r1 log" } }).kind).toBe("ask");
     for (const bad of [
       "cd /d/worktrees/x && git push",
       "cd /etc && git log",
@@ -47,6 +50,7 @@ describe("R2' 承認", () => {
       "git -C /d/worktrees/x log; curl x",
       "git -C /d/worktrees/x -c core.pager=sh log",
       "cd relative && git log",
+      "git log",
     ]) expect(decidePermission({ ...leader, toolName: "Bash", toolInput: { command: bad } }).kind, bad).toBe("deny");
     expect(oneTimeRule("Write", { file_path: "/a/b.md" })).toBe("Edit(//a/b.md)");
   });
