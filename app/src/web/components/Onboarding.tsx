@@ -1,5 +1,5 @@
 // 初回の案内（D-38）。最初のログイン時に 1 回だけ出し、メニューの「使い方」からいつでも開ける
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ONBOARDING_STEPS, TESTIDS, UI_TEXT } from "@baton/shared";
 import { spring } from "../motion/tokens.ts";
@@ -38,9 +38,19 @@ export function Onboarding() {
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const last = step === ONBOARDING_STEPS.length - 1;
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
 
+  // 開いたらフォーカスを案内の中へ、閉じたら元の場所へ戻す（裏の画面は AppShell が inert にする）
   useEffect(() => {
-    if (open) setStep(0);
+    if (!open) return;
+    setStep(0);
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const t = requestAnimationFrame(() => primaryRef.current?.focus({ preventScroll: true }));
+    return () => {
+      cancelAnimationFrame(t);
+      returnFocus.current?.focus({ preventScroll: true });
+    };
   }, [open]);
 
   const close = () => {
@@ -128,6 +138,7 @@ export function Onboarding() {
               )}
               <motion.button
                 type="button"
+                ref={primaryRef}
                 className="onboarding__btn onboarding__btn--primary"
                 data-testid={TESTIDS.onboardingNext}
                 whileTap={{ scale: 0.95 }}

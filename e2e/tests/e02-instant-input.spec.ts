@@ -1,5 +1,5 @@
 // E2 開いてすぐ（スケルトン表示中に）入力欄に打てる。デスクトップは自動フォーカス、iPhone はタップでフォーカス（設計書 7.4）
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../helpers/fixtures.ts";
 import { API_PATHS, TESTIDS } from "@baton/shared";
 import { byTestId, composer, isTouchProject, skeleton, uniqueMarker } from "../helpers/ui.ts";
 

@@ -169,6 +169,7 @@ export function Composer() {
   // デスクトップ: どこにいても / か ⌘K で入力欄へ
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (useUi.getState().onboardingOpen) return; // 案内を開いている間はショートカットを効かせない
       const target = e.target as HTMLElement | null;
       const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
@@ -205,6 +206,7 @@ export function Composer() {
   }, []);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (useUi.getState().onboardingOpen) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();

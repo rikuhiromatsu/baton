@@ -1,7 +1,7 @@
 // E1 未ログインで / → /login、login-google がある。テスト用ログインは条件が欠けると 404（設計書 6.5）
 // 「迂回なしの本番相当ビルドでは 404」そのものは、ビルド成果物の検査（scripts/assert-no-test-routes.mjs）と
 // デプロイ後のスモーク（scripts/smoke-prod.mjs）で確かめる。ここでは e2e ビルドでも秘密が無ければ閉じていることを見る。
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../helpers/fixtures.ts";
 import { API_PATHS, TEST_API_PATHS, TEST_SECRET_HEADER, TESTIDS } from "@baton/shared";
 import { CEO_EMAIL } from "../helpers/env.ts";
 import { byTestId } from "../helpers/ui.ts";

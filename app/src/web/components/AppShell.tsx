@@ -9,6 +9,7 @@ import { ApiError } from "../api/client.ts";
 import { useSession, useUsage } from "../api/queries.ts";
 import { Realtime, getSocketFactory, setRealtime } from "../api/ws.ts";
 import { probeTailnet } from "../lib/tailnet.ts";
+import { useUi } from "../state/ui.ts";
 import { ActionMenu } from "./ActionMenu.tsx";
 import { Onboarding, useAutoOnboarding } from "./Onboarding.tsx";
 import { AmbientBackground } from "./AmbientBackground.tsx";
@@ -26,6 +27,8 @@ export function AppShell() {
   const loggedIn = session.data !== undefined && !session.isError;
   const usage = useUsage(loggedIn);
   useAutoOnboarding(loggedIn && !isLogin);
+  // 案内を開いている間は、裏の画面をキーボードでも触れなくする（Codex の指摘）
+  const onboardingOpen = useUi((s) => s.onboardingOpen);
 
   // 未ログインはログイン画面へ（7.2 の 401）
   useEffect(() => {
@@ -78,14 +81,16 @@ export function AppShell() {
   return (
     <MotionConfig reducedMotion="user">
       <AmbientBackground />
-      <div className="app">
-        {!isLogin && <TopBar session={session.data} usage={usage.data} back={back} />}
-        <Outlet />
+      <div className="app-layer" inert={onboardingOpen}>
+        <div className="app">
+          {!isLogin && <TopBar session={session.data} usage={usage.data} back={back} />}
+          <Outlet />
+        </div>
+        {!isLogin && <Composer />}
+        <ToastHost />
+        <ActionMenu />
+        <SendBackSheet />
       </div>
-      {!isLogin && <Composer />}
-      <ToastHost />
-      <ActionMenu />
-      <SendBackSheet />
       {!isLogin && <Onboarding />}
     </MotionConfig>
   );

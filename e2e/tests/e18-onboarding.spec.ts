@@ -10,6 +10,10 @@ test("E18 初回だけ案内が出て、最後まで進めると閉じ、メニ�
   const dialog = byTestId(page, TESTIDS.onboarding);
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(ONBOARDING_STEPS[0]!.title);
+  // 開いている間は裏の入力欄にキーボードが届かない（フォーカスは案内の中）
+  await expect(byTestId(page, TESTIDS.onboardingNext)).toBeFocused();
+  await page.keyboard.type("x");
+  await expect(byTestId(page, TESTIDS.composerInput).first()).toHaveValue("");
 
   for (let i = 1; i < ONBOARDING_STEPS.length; i++) {
     await press(byTestId(page, TESTIDS.onboardingNext), testInfo);

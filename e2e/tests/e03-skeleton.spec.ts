@@ -1,5 +1,5 @@
 // E3 全画面スケルトンが出て、データがそろうと消える（/api/instructions を 800ms 遅らせて確認。設計書 7.9）
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../helpers/fixtures.ts";
 import { API_PATHS, TESTIDS } from "@baton/shared";
 import { PROJECTS } from "../helpers/env.ts";
 import { byTestId, composer, onlyOn, skeleton } from "../helpers/ui.ts";
