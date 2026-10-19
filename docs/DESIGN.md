@@ -991,6 +991,34 @@ AI が生成した文章（件名・報告・要約・質問）はそのまま�
 | 正規化 | `app/test/fixtures/ai/*.json`（`ai:probe` で取った実物）を `normalizeAiResult()` に通すテスト |
 | ランナー | `BatonApi` インターフェースを差し替える `FakeBatonApi`（メモリ上の D1 もどき）。AI は `FakeAi`（台本の配列を順に返す） |
 
+#### 8.2.1 ScriptedAiClient とランナーの取り決め（U1 と U3 の契約）
+
+ScriptedAiClient は状態を持たず、`AiChatInput.messages` の文字列だけを見て応答を決める。そのため、ランナーのプロンプトは次の書式を必ず守る。
+
+| 何を | 書式（ランナーが書く） | 置き場所 |
+|---|---|---|
+| 段階 | 1 行目が `ROLE: <stage>`（`coo_route` / `leader_plan` / `member_step` / `leader_review` / `coo_final`）。補助（util）は `ROLE: util` | system メッセージの先頭 |
+| 指示本文 | `<<<input>>>` と `<<<end>>>` で囲む | 最初の user メッセージ |
+| CEO の回答 | 回答済みの判断 1 件ごとに `CEO_ANSWER: <回答>` の 1 行 | 最初の user メッセージ |
+| 差し戻しコメント | `CEO_FEEDBACK: <コメント>` の 1 行 | 最初の user メッセージ |
+| メンバーの担当タスク | `TASK_KEY: <plan_key>` の 1 行 | メンバーの最初の user メッセージ |
+| チーム | `MEMBER: <名前> — <得意分野>` をメンバーごとに 1 行 | リーダーの user メッセージ |
+| 道具の結果 | user メッセージの先頭を `TOOL_RESULT <tool>:` にする | メンバーの 2 ターン目以降 |
+| JSON の直し依頼 | user メッセージの先頭を `JSON_ERROR:` にする | 検査失敗時の再依頼 |
+
+ScriptedAiClient の応答（マーカーは全メッセージのどこにあってもよい）:
+
+| 段階 | 通常 | マーカー |
+|---|---|---|
+| `coo_route` | `route`（新規プロジェクト: name `テスト`、slug `test`、リーダー `リーダー`、メンバー `調査担当` と `執筆担当`、title は本文の先頭 20 文字） | `[ask]` かつ `CEO_ANSWER:` が無い → `ask_ceo`（選択肢 `A案`・`B案`） |
+| `leader_plan` | `plan`: `t1`（担当 `調査担当`）と `t2`（担当 `執筆担当`）。依存なし（並列） | — |
+| `member_step` | `TOOL_RESULT` が無い → `fs_write`（`notes/<TASK_KEY>.md`）。ある → `done`（成果物 `notes/<TASK_KEY>.md`） | `[fail]` → `give_up` |
+| `leader_review` | `report` | — |
+| `coo_final` | `final`（本文に `テスト報告` を含む） | — |
+| すべて | — | `[slow]` → 各応答を 1.5 秒遅らせる。`[quota]` → 429 `ai_quota`（`details.retryAt` は 60 秒後）。`[badjson]` かつ `JSON_ERROR:` が無い → 壊れた JSON |
+
+ランナーの規則（U3）: work タスクがすべて `failed` なら、リーダーのまとめに進まず指示を `failed`（`error` に理由）にする。新規プロジェクトの slug が衝突したら、Worker の `POST /api/runner/projects` が末尾に `-2`、`-3` … を付けて作る（U1）。
+
 ### 8.3 テストケース一覧
 
 **shared（Vitest、node）** — `packages/shared/test/`
