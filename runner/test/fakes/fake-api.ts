@@ -215,6 +215,9 @@ export class FakeBatonApi implements BatonApi {
   }
 
   memberWorkAvailable(i: Instr): boolean {
+    // V1 と同じ: 追加の依頼は running・needs_decision・review なら段階に関係なく
+    const followUp = this.inputs.some((x) => x.instructionId === i.id && x.status === "pending");
+    if (followUp && ["running", "needs_decision", "review"].includes(i.status)) return true;
     if (i.status !== "running" || i.phase !== "members") return false;
     const tasks = [...this.tasks.values()].filter((t) => t.instructionId === i.id && t.kind === "work");
     if (tasks.some((t) => t.status === "pending")) return true;

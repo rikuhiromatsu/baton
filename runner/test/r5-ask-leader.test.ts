@@ -46,4 +46,26 @@ describe("R5 ask_leader と ask_coo", () => {
     await env.drain();
     expect([...api.tasks.values()].length).toBeGreaterThan(0);
   }, 30_000);
+
+  it("追加の依頼（5.6）: 終わったメンバーに --resume で渡し、結果はそのタスクだけリーダーへ（ラウンドのまとめは出し直さない）", async () => {
+    env = await makeEnv();
+    const { api } = env;
+    api.ceoSays(COO_THREAD_ID, "メモを書いて");
+    await env.step();
+    await env.step();
+    await env.step();
+    const s = [...api.sessions.values()].find((x) => x.role === "member")!;
+    expect(s.status).toBe("done");
+    const before = api.inbox.filter((i) => i.kind === "member_results").length;
+    const input = api.addSessionInput(s.id, "見出しを足して");
+    let r = await env.step();
+    while (r && r.kind !== "instruction") r = await env.step();
+    expect(r?.kind).toBe("instruction");
+    expect(api.inputs.find((x) => x.id === input.id)!.status).toBe("delivered");
+    expect(api.sessions.get(s.id)!.status).toBe("done");
+    const results = api.inbox.filter((i) => i.kind === "member_results");
+    expect(results.length).toBe(before + 1);
+    expect(String(JSON.stringify(results.at(-1)!.payload))).toContain("追加の依頼に対応しました");
+    expect(api.transcript.some((t) => t.sessionId === s.id && String((t.body as { text?: string }).text ?? "").startsWith("[CEO の追加の依頼] 見出しを足して"))).toBe(true);
+  }, 30_000);
 });
