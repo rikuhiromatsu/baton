@@ -210,8 +210,16 @@ export async function seedFull(b: MockBackend, flows: Flows, opts: { still: bool
     await flows.leaderTurn(light, coffee, "[メンバーの結果] t1 done / t2 done", "まとめて COO に報告します", false);
     await flows.present(light, "浅煎りのレシピ 5 本ができました。\n\n1. エチオピア: 92℃・中細挽き・2 分 30 秒\n2. ケニア: 90℃・中挽き・2 分 45 秒\n3. グアテマラ: 91℃・中細挽き・2 分 40 秒\n4. コスタリカ: 92℃・中挽き・2 分 50 秒\n5. パナマ: 93℃・細挽き・2 分 20 秒");
   };
-  b.run(runLight);
-  if (opts.still) await settle();
+  if (opts.still) {
+    // 止めた絵: 途中まで一気に進めて止める
+    b.instant = true;
+    b.run(runLight);
+    await settle();
+    b.instant = false;
+    b.travel(0);
+  } else {
+    b.run(runLight);
+  }
 }
 
 /** シナリオ A を最初から（COO の会話は空。ほかのプロジェクトはある） */

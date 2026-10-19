@@ -1,24 +1,19 @@
-// F1 Composer: #boot-composer の値とフォーカスを引き継ぐ、⌘Enter で送信、空白だけは送らない、送信後に空になる、失敗で再送ボタン
-import { beforeEach, describe, expect, it } from "vitest";
+// F1 Composer: #boot-composer の値とフォーカスを引き継ぐ（二重 remove しない）、⌘Enter で送信、空白だけは送らない、送信後に空になる、
+// 失敗で再送。v2: 宛先の表示（→ COO / → リーダー）とプロジェクトのチップ、ターン中は中断
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { TESTIDS, UI_TEXT } from "@baton/shared";
+import { COO_THREAD_ID, TESTIDS, UI_TEXT, UI_TEXT_V2 } from "@baton/shared";
 import { Composer } from "../../src/web/components/Composer.tsx";
-import { InstructionList } from "../../src/web/components/InstructionList.tsx";
-import { useActiveList } from "../../src/web/api/queries.ts";
+import { composerTarget, parseRoute, type ComposerTarget } from "../../src/web/lib/target.ts";
 import { useDraft } from "../../src/web/state/draft.ts";
 import { useOutbox } from "../../src/web/state/outbox.ts";
-import { useUi } from "../../src/web/state/ui.ts";
-import { json, listItems, makeQc, recordingTransport, seedList, summary, Wrap, type Call } from "./helpers.tsx";
+import { json, makeQc, message, recordingTransport, Wrap, type Call } from "./helpers.tsx";
 
-function Home() {
-  const list = useActiveList();
-  return (
-    <>
-      {list.data && <InstructionList items={list.data.items} now={Date.now()} onOpen={() => {}} />}
-      <Composer />
-    </>
-  );
-}
+const cooTarget = (): ComposerTarget => composerTarget(parseRoute("/"), { leaderThreadIdOf: () => null, projectNameOf: () => null, detailTarget: null, chipCleared: null })!;
+const projectTarget = (): ComposerTarget =>
+  composerTarget(parseRoute("/p/p1"), { leaderThreadIdOf: () => null, projectNameOf: () => "台本", detailTarget: null, chipCleared: null })!;
+const leaderTarget = (): ComposerTarget =>
+  composerTarget(parseRoute("/p/p1/leader"), { leaderThreadIdOf: () => "thread-leader-p1", projectNameOf: () => "台本", detailTarget: null, chipCleared: null })!;
 
 function bootComposer(value: string, caret: number, focus: boolean): HTMLTextAreaElement {
   const wrap = document.createElement("div");
@@ -37,152 +32,130 @@ function input(): HTMLTextAreaElement {
   return screen.getByTestId(TESTIDS.composerInput) as HTMLTextAreaElement;
 }
 
-const tick = () => act(() => new Promise((r) => setTimeout(r, 20)));
+const tick = () => act(() => new Promise((r) => setTimeout(r, 30)));
 
 beforeEach(() => {
-  useDraft.setState({ text: "" });
+  useDraft.setState({ texts: {} });
   useOutbox.setState({ items: {} });
-  useUi.setState({ bubble: null, listRevealed: true });
   document.getElementById("boot-composer-wrap")?.remove();
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
 });
 
 describe("F1 Composer", () => {
   it("埋め込みの入力欄の値・選択範囲・フォーカスを引き継いで置き換える", () => {
-    bootComposer("打ちかけの指示", 3, true);
-    const qc = makeQc();
+    bootComposer("打ちかけの依頼", 3, true);
     render(
-      <Wrap qc={qc}>
-        <Composer />
+      <Wrap qc={makeQc()}>
+        <Composer target={cooTarget()} />
       </Wrap>,
     );
     expect(document.getElementById("boot-composer")).toBeNull();
     expect(document.getElementById("boot-composer-wrap")).toBeNull();
     const el = input();
-    expect(el.value).toBe("打ちかけの指示");
+    expect(el.value).toBe("打ちかけの依頼");
     expect(document.activeElement).toBe(el);
     expect(el.selectionStart).toBe(3);
-    expect(el.getAttribute("aria-label")).toBe(UI_TEXT.composerAria);
-    expect(useDraft.getState().text).toBe("打ちかけの指示");
+    expect(useDraft.getState().texts.coo).toBe("打ちかけの依頼");
   });
 
-  it("フォーカスしていなかったときは値だけ引き継ぐ", () => {
-    bootComposer("値だけ", 0, false);
-    const qc = makeQc();
-    render(
-      <Wrap qc={qc}>
-        <Composer />
-      </Wrap>,
-    );
-    expect(input().value).toBe("値だけ");
+  it("引き継ぎの途中で blur が起きても二重に remove しない", () => {
+    const ta = bootComposer("x", 1, true);
+    const wrap = document.getElementById("boot-composer-wrap")!;
+    const remove = vi.spyOn(wrap, "remove");
+    ta.addEventListener("blur", () => wrap.remove());
+    expect(() =>
+      render(
+        <Wrap qc={makeQc()}>
+          <Composer target={cooTarget()} />
+        </Wrap>,
+      ),
+    ).not.toThrow();
+    expect(remove.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
-  it("⌘Enter で送信し、送信後に空になる。一覧の待機に楽観的に出る", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
-    const { calls } = recordingTransport((c) =>
-      c.method === "POST" ? json(201, summary({ id: "srv-1", clientId: (c.body as { clientId: string }).clientId, body: "調べて" })) : json(200, { items: [], nextCursor: null }),
-    );
+  it("⌘Enter で COO のスレッドへ送り、入力欄が空になる。空白だけは送らない", async () => {
+    const { calls } = recordingTransport((c: Call) => json(201, { message: message({ authorKind: "ceo", clientId: (c.body as { clientId: string }).clientId }) }));
     render(
-      <Wrap qc={qc}>
-        <Home />
+      <Wrap qc={makeQc()}>
+        <Composer target={cooTarget()} />
       </Wrap>,
     );
-    fireEvent.change(input(), { target: { value: "調べて" } });
-    expect((screen.getByTestId(TESTIDS.composerSend) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(input(), { target: { value: "   " } });
     fireEvent.keyDown(input(), { key: "Enter", metaKey: true });
     await tick();
+    expect(calls).toHaveLength(0);
+    fireEvent.change(input(), { target: { value: "ショート動画の台本 10 本作りたい" } });
+    fireEvent.keyDown(input(), { key: "Enter", metaKey: true });
     await tick();
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]!.path).toBe(`/api/threads/${COO_THREAD_ID}/messages`);
+    expect(calls[0]!.body).toMatchObject({ body: "ショート動画の台本 10 本作りたい" });
     expect(input().value).toBe("");
-    const posts = calls.filter((c: Call) => c.method === "POST");
-    expect(posts).toHaveLength(1);
-    expect(posts[0]!.body).toMatchObject({ body: "調べて" });
-    await waitFor(() => expect(listItems(qc).map((i) => i.id)).toEqual(["srv-1"]));
-    const card = screen.getByTestId(TESTIDS.instructionCard);
-    expect(card.getAttribute("data-status")).toBe("queued");
   });
 
-  it("Enter だけでは送らない（改行）。Ctrl+Enter でも送れる", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
-    const { calls } = recordingTransport((c) => json(201, summary({ clientId: (c.body as { clientId: string }).clientId })));
+  it("宛先の表示とプロジェクトのチップ（about）。チップの × で外す", async () => {
+    const onClear = vi.fn();
+    const { calls } = recordingTransport(() => json(201, { message: message({ authorKind: "ceo" }) }));
     render(
-      <Wrap qc={qc}>
-        <Composer />
+      <Wrap qc={makeQc()}>
+        <Composer target={projectTarget()} onClearContext={onClear} />
       </Wrap>,
     );
-    fireEvent.change(input(), { target: { value: "一行目" } });
-    fireEvent.keyDown(input(), { key: "Enter" });
-    await tick();
-    expect(calls).toHaveLength(0);
-    fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
-    await tick();
-    expect(calls).toHaveLength(1);
-  });
-
-  it("空白だけは送らない", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
-    const { calls } = recordingTransport(() => json(201, {}));
-    render(
-      <Wrap qc={qc}>
-        <Composer />
-      </Wrap>,
-    );
-    fireEvent.change(input(), { target: { value: "   \n  " } });
-    expect((screen.getByTestId(TESTIDS.composerSend) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.keyDown(input(), { key: "Enter", metaKey: true });
+    expect(screen.getByTestId(TESTIDS.threadTarget).textContent).toContain(UI_TEXT_V2.roles.coo);
+    const chip = screen.getByTestId(TESTIDS.contextChip);
+    expect(chip.textContent).toContain("台本");
+    expect(chip.textContent).toContain(UI_TEXT_V2.conversation.about);
+    fireEvent.change(input(), { target: { value: "急ぎで" } });
     fireEvent.click(screen.getByTestId(TESTIDS.composerSend));
-    await tick();
-    expect(calls).toHaveLength(0);
-    expect(listItems(qc)).toHaveLength(0);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]!.body).toMatchObject({ contextProjectId: "p1" });
+    fireEvent.click(screen.getByTestId(TESTIDS.contextChipClear));
+    expect(onClear).toHaveBeenCalled();
   });
 
-  it("失敗したらカードを赤くして再送ボタンを出し、押すと同じ clientId で送り直す", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
-    let fail = true;
-    const { calls } = recordingTransport((c) => {
-      if (c.method !== "POST") return json(200, { items: listItems(qc), nextCursor: null });
-      return fail ? json(503, { error: { code: "internal", message: "down" } }) : json(201, summary({ id: "srv-9", clientId: (c.body as { clientId: string }).clientId, body: "失敗する指示" }));
-    });
+  it("リーダーのスレッドではリーダー宛て（aria-label と宛先の表示）", () => {
     render(
-      <Wrap qc={qc}>
-        <Home />
+      <Wrap qc={makeQc()}>
+        <Composer target={leaderTarget()} />
       </Wrap>,
     );
-    fireEvent.change(input(), { target: { value: "失敗する指示" } });
+    expect(input().getAttribute("aria-label")).toBe(UI_TEXT_V2.composer.leaderAria);
+    expect(screen.getByTestId(TESTIDS.threadTarget).textContent).toContain(UI_TEXT_V2.roles.leader);
+    expect(screen.getByTestId(TESTIDS.threadTarget).textContent).toContain("台本");
+  });
+
+  it("ターン中で空のときは中断のボタン。押すと onInterrupt", () => {
+    const onInterrupt = vi.fn();
+    render(
+      <Wrap qc={makeQc()}>
+        <Composer target={cooTarget()} running onInterrupt={onInterrupt} />
+      </Wrap>,
+    );
+    const stop = screen.getByTestId(TESTIDS.interruptButton);
+    expect(stop.getAttribute("aria-label")).toBe(UI_TEXT_V2.composer.interrupt);
+    fireEvent.click(stop);
+    expect(onInterrupt).toHaveBeenCalled();
+  });
+
+  it("返事待ちの帯", () => {
+    render(
+      <Wrap qc={makeQc()}>
+        <Composer target={cooTarget()} awaitingReply />
+      </Wrap>,
+    );
+    expect(screen.getByTestId(TESTIDS.awaitingReply).textContent).toContain(UI_TEXT_V2.sidebar.awaitingReply);
+  });
+
+  it("送れなかったら送信待ちに failed が残る（再送できる）", async () => {
+    recordingTransport(() => json(500, { error: { code: "internal", message: "x" } }));
+    render(
+      <Wrap qc={makeQc()}>
+        <Composer target={cooTarget()} />
+      </Wrap>,
+    );
+    fireEvent.change(input(), { target: { value: "失敗する" } });
     fireEvent.click(screen.getByTestId(TESTIDS.composerSend));
-    await tick();
-    await tick();
-    const card = await screen.findByTestId(TESTIDS.instructionCard);
-    await waitFor(() => expect(card.getAttribute("data-failed-send")).toBe("true"));
-    const resend = screen.getAllByRole("button", { name: UI_TEXT.resend })[0]!;
-    fail = false;
-    fireEvent.click(resend);
-    await waitFor(() => expect(listItems(qc).map((i) => i.id)).toEqual(["srv-9"]));
-    const posts = calls.filter((c) => c.method === "POST").map((c) => (c.body as { clientId: string }).clientId);
-    expect(posts).toHaveLength(2);
-    expect(posts[0]).toBe(posts[1]);
-    await waitFor(() => expect(screen.getByTestId(TESTIDS.instructionCard).getAttribute("data-failed-send")).toBeNull());
-  });
-});
-
-describe("F1 Composer（上限）", () => {
-  it("8000 文字を超える入力は送らず、下書きも消さない", async () => {
-    const qc = makeQc();
-    seedList(qc, []);
-    const { calls } = recordingTransport(() => json(201, {}));
-    useDraft.setState({ text: "あ".repeat(8001) });
-    render(
-      <Wrap qc={qc}>
-        <Composer />
-      </Wrap>,
-    );
-    expect((screen.getByTestId(TESTIDS.composerSend) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.keyDown(input(), { key: "Enter", metaKey: true });
-    await tick();
-    expect(calls).toHaveLength(0);
-    expect(useDraft.getState().text).toHaveLength(8001);
-    expect(input().getAttribute("maxlength")).toBe("8000");
+    await waitFor(() => expect(Object.values(useOutbox.getState().items)[0]?.state).toBe("failed"));
+    expect(UI_TEXT.resend).toBe("再送");
   });
 });

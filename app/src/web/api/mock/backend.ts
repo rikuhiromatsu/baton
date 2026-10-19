@@ -96,6 +96,8 @@ export class MockBackend {
   readonly sockets = new Set<MockSocket>();
   readonly transitions: TransitionLog[] = [];
   readonly inputs: SessionInput[] = [];
+  /** 一度でも画面に出しうる文字列（いまの動きなど、あとで変わるもの。F7 の検査用） */
+  readonly seenTexts = new Set<string>();
   repos: RepoCandidate[] = [];
   profiles: ProfileView[] = [];
   pushSubs: PushSubscriptionView[] = [];
@@ -181,6 +183,7 @@ export class MockBackend {
       tokens: this.botTokens,
       audit: this.botAudit,
       inputs: this.inputs,
+      seen: [...this.seenTexts],
     };
     const leaves: string[] = [];
     const walk = (v: unknown) => {
@@ -272,6 +275,7 @@ export class MockBackend {
   }
 
   setThread(threadId: string, patch: Partial<ThreadRec["summary"]>): void {
+    if (patch.activity) this.seenTexts.add(patch.activity);
     const rec = this.threads.get(threadId);
     if (!rec) return;
     rec.summary = { ...rec.summary, ...patch };
@@ -644,6 +648,7 @@ export class MockBackend {
   }
 
   setSession(rec: InstRec, s: AgentSessionSummary, patch: Partial<AgentSessionSummary>): AgentSessionSummary {
+    if (patch.activity) this.seenTexts.add(patch.activity);
     const idx = rec.sessions.findIndex((x) => x.id === s.id);
     const next = { ...rec.sessions[idx]!, ...patch, updatedAt: this.now() };
     rec.sessions[idx] = next;

@@ -543,6 +543,18 @@
 .output-card[data-mode="detailed"] .output-card__line {
   -webkit-line-clamp: unset;
 }
+.output-card__text + .output-card__text::before {
+  content: " / ";
+  color: var(--text-tertiary);
+}
+.output-card__type {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-size: 11px;
+  color: var(--role-coo);
+}
 .output-card__json {
   margin: 8px 0 0;
   padding: 8px 10px;

@@ -174,21 +174,29 @@ export function TodoCard({ todos }: { todos: TodoEntry[] }) {
 function OutputCard({ item, mode }: { item: TranscriptItem; mode: ViewMode }) {
   const value = (item.body as { value?: Record<string, unknown> }).value ?? {};
   const actions = Array.isArray(value.actions) ? (value.actions as Record<string, unknown>[]) : [];
-  const lines: string[] = [];
-  if (typeof value.summary === "string") lines.push(value.summary);
-  if (typeof value.reason === "string") lines.push(value.reason);
-  if (typeof value.question === "string") lines.push(value.question);
+  const first = (v: string) => (v.split("\n").find((l) => l.trim()) ?? "").replace(/\*\*/g, "").trim();
+  const lines: { type: string | null; texts: string[] }[] = [];
+  for (const k of ["summary", "reason", "question"] as const) if (typeof value[k] === "string") lines.push({ type: null, texts: [first(value[k] as string)] });
   for (const a of actions) {
     const t = typeof a.type === "string" ? a.type : "";
-    const detail = typeof a.title === "string" ? a.title : typeof a.summary === "string" ? a.summary : typeof a.message === "string" ? a.message : Array.isArray(a.tasks) ? (a.tasks as { title?: string }[]).map((x) => x.title ?? "").join(" / ") : "";
-    lines.push(`${t}${detail ? ` · ${detail.replace(/\*\*/g, "").replace(/\s+/g, " ")}` : ""}`);
+    if (Array.isArray(a.tasks)) {
+      lines.push({ type: t, texts: (a.tasks as { title?: string }[]).map((x) => x.title ?? "").filter(Boolean) });
+      continue;
+    }
+    const detail = typeof a.title === "string" ? a.title : typeof a.summary === "string" ? a.summary : typeof a.message === "string" ? a.message : "";
+    lines.push({ type: t, texts: detail ? [first(detail)] : [] });
   }
   return (
     <div className="output-card" data-testid={TESTIDS.transcriptItem} data-kind="output" data-seq={item.seq} data-mode={mode}>
       <span className="output-card__label">{UI_TEXT_V2.transcript.conclusion}</span>
       {lines.map((l, i) => (
         <p key={i} className="output-card__line">
-          {l}
+          {l.type && <code className="output-card__type">{l.type}</code>}
+          {l.texts.map((x, j) => (
+            <span key={j} className="output-card__text">
+              {x}
+            </span>
+          ))}
         </p>
       ))}
       {mode === "detailed" && <pre className="output-card__json">{JSON.stringify(value, null, 2)}</pre>}

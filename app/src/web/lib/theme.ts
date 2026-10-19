@@ -40,7 +40,7 @@ export function applyTheme(pref: ThemeValue, doc: Document = document): void {
     const m = doc.createElement("meta");
     m.name = "theme-color";
     m.content = content;
-    if (media) m.media = media;
+    if (media) m.setAttribute("media", media);
     doc.head.appendChild(m);
   };
   if (pref === "auto") {
