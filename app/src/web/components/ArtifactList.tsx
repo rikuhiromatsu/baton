@@ -1,4 +1,4 @@
-// 成果物の一覧とプレビュー（7.5）。プレビューは textContent で描く（HTML として解釈しない。6.6・D-17）
+// 成果物の一覧とプレビュー（v1 7.5）。プレビューは textContent で描く（HTML として解釈しない）
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TESTIDS, UI_TEXT, type ArtifactMeta } from "@baton/shared";
@@ -14,7 +14,7 @@ export function ArtifactList({ artifacts }: { artifacts: ArtifactMeta[] }) {
   return (
     <ul className="artifact-list">
       {artifacts.map((a) => (
-        <li key={a.id} className="artifact" data-testid={TESTIDS.artifactItem} data-id={a.id}>
+        <li key={a.id} className="artifact glass glass--card" data-testid={TESTIDS.artifactItem} data-id={a.id}>
           <button type="button" className="artifact__head" aria-expanded={openId === a.id} onClick={() => setOpenId((v) => (v === a.id ? null : a.id))}>
             <IconFile size={18} />
             <span className="artifact__title">{a.title}</span>

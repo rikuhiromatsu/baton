@@ -1,7 +1,33 @@
-// WebSocket（/api/ws）。ServerMessage を受けてクエリキャッシュに反映する（設計書 4.5）
+// WebSocket（/api/ws）。ServerMessage を受けてクエリキャッシュに反映する（v1 4.5・DESIGN-v2 12.5）
 import type { QueryClient } from "@tanstack/react-query";
-import { API_PATHS, ServerMessageSchema, WS_PING, WS_PONG, unpackServerMessage, type ClientEvent, type ServerEvent } from "@baton/shared";
-import { addArtifact, appendEvent, setRunner, upsertDecision, upsertInstruction, upsertTask } from "./cache.ts";
+import {
+  API_PATHS,
+  ServerMessageSchema,
+  WS_PING,
+  WS_PONG,
+  unpackServerMessage,
+  type ClientEvent,
+  type ServerEvent,
+  type ThreadMessage,
+} from "@baton/shared";
+import { useStreams } from "../state/streams.ts";
+import { toastId, useToasts } from "../state/toasts.ts";
+import { useUi } from "../state/ui.ts";
+import {
+  addArtifact,
+  appendTranscript,
+  findThread,
+  setProjectCounts,
+  setQuota,
+  setRunner,
+  upsertDecision,
+  upsertInstruction,
+  upsertMessage,
+  upsertSession,
+  upsertTask,
+  upsertThread,
+  upsertWorkspace,
+} from "./cache.ts";
 import { qk } from "./keys.ts";
 
 /** WebSocket と同じ形の最小限（モックが同じ形を実装する） */
@@ -25,34 +51,135 @@ export function backoffDelay(attempt: number): number {
   return Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.max(0, attempt));
 }
 
+// 組織図・サイドパネルは、いろいろなイベントのあとにまとめて取り直す（1 回の取り直しに束ねる）
+const debounced = new Map<string, ReturnType<typeof setTimeout>>();
+function invalidateSoon(qc: QueryClient, key: readonly unknown[], ms = 300): void {
+  const k = JSON.stringify(key);
+  if (debounced.has(k)) return;
+  debounced.set(
+    k,
+    setTimeout(() => {
+      debounced.delete(k);
+      void qc.invalidateQueries({ queryKey: key });
+    }, ms),
+  );
+}
+
+/** トーストを出した発言（同じ発言の upsert が何度来ても 1 回だけ） */
+const toasted = new Set<string>();
+
+/** 発言が完成したとき、いま見ていないスレッドで notify=1 ならトースト（4.8） */
+function maybeToast(qc: QueryClient, m: ThreadMessage): void {
+  if (!m.notify || m.status !== "complete" || toasted.has(m.id)) return;
+  if (m.authorKind === "ceo" || m.authorKind === "system" || m.authorKind === "secretary") return;
+  toasted.add(m.id);
+  const visible = useUi.getState().visibleThreadId;
+  const docVisible = typeof document === "undefined" || document.visibilityState !== "hidden";
+  if (visible === m.threadId && docVisible) return;
+  const thread = findThread(qc, m.threadId);
+  const to = thread?.kind === "leader" && thread.projectId ? `/p/${thread.projectId}/leader` : "/";
+  useToasts.getState().show({
+    id: toastId(),
+    kind: "message",
+    threadId: m.threadId,
+    to,
+    authorKind: m.authorKind,
+    authorName: m.authorName,
+    projectName: thread?.projectName ?? null,
+    preview: m.body.replace(/\s+/g, " ").slice(0, 80),
+    createdAt: Date.now(),
+    duration: 4000,
+  });
+}
+
+/** 起動直後に届く既存の発言でトーストを出さない（テストからも呼ぶ） */
+export function markToasted(ids: readonly string[]): void {
+  for (const id of ids) toasted.add(id);
+}
+
 /** 1 つのイベントをキャッシュに反映する */
 export function applyServerEvent(qc: QueryClient, ev: ServerEvent): void {
   switch (ev.t) {
     case "hello":
       setRunner(qc, ev.runner);
-      // 切れていた間のイベントを取りこぼしているかもしれないので、表示中のクエリを全部取り直す
+      // 切れていた間のイベントを取りこぼしているかもしれないので、表示中のクエリを全部取り直す（streaming は本文から続ける）
       void qc.invalidateQueries({ refetchType: "active", predicate: (q) => q.queryKey[0] !== "session" });
       break;
     case "instruction.upserted":
       upsertInstruction(qc, ev.instruction);
+      invalidateSoon(qc, qk.org);
       break;
     case "task.upserted":
       upsertTask(qc, ev.task);
       break;
     case "decision.upserted":
       upsertDecision(qc, ev.decision);
+      invalidateSoon(qc, qk.sidebar);
+      invalidateSoon(qc, qk.org);
       break;
     case "artifact.created":
       addArtifact(qc, ev.artifact);
       break;
-    case "agent_event.appended":
-      appendEvent(qc, ev.event);
-      break;
     case "runner.status":
       setRunner(qc, ev.runner);
+      qc.setQueryData(qk.org, (old: unknown) => (old && typeof old === "object" ? { ...(old as object), runner: ev.runner } : old));
       break;
-    case "usage.updated":
-      qc.setQueryData(qk.usage, ev.usage);
+    case "thread.updated":
+      upsertThread(qc, ev.thread);
+      invalidateSoon(qc, qk.org);
+      break;
+    case "message.upserted": {
+      const m = ev.message;
+      if (m.status === "streaming") useStreams.getState().begin(m.id, m.threadId, m.body);
+      else useStreams.getState().end(m.id);
+      upsertMessage(qc, m);
+      // 本文が切られていたら、完成したものだけ取り直す（全文は REST）
+      if (ev.bodyTruncated && m.status !== "streaming") void qc.invalidateQueries({ queryKey: qk.messages(m.threadId) });
+      if (!qc.getQueryData(qk.messages(m.threadId))) {
+        // まだ開いていないスレッド: 一覧の最後の発言だけ動かす
+        invalidateSoon(qc, qk.threads, 500);
+      }
+      maybeToast(qc, m);
+      if (m.kind === "project_proposal" && m.ref.proposalId) void qc.invalidateQueries({ queryKey: qk.proposal(m.ref.proposalId) });
+      break;
+    }
+    case "message.delta": {
+      const ok = useStreams.getState().delta(ev.messageId, ev.threadId, ev);
+      if (!ok) {
+        // 飛んでいた: REST の本文から取り直して続ける（4.7）
+        void qc.invalidateQueries({ queryKey: qk.messages(ev.threadId) });
+      }
+      break;
+    }
+    case "project_proposal.upserted":
+      qc.setQueryData(qk.proposal(ev.proposal.id), ev.proposal);
+      break;
+    case "session.upserted":
+      upsertSession(qc, ev.session);
+      invalidateSoon(qc, qk.org);
+      break;
+    case "transcript.appended":
+      appendTranscript(qc, ev.items);
+      break;
+    case "session_input.upserted":
+      if (ev.input.status === "delivered") void qc.invalidateQueries({ queryKey: qk.transcriptsOf(ev.input.sessionId) });
+      break;
+    case "workspace.upserted":
+      upsertWorkspace(qc, ev.workspace);
+      void qc.invalidateQueries({ queryKey: qk.diff(ev.workspace.instructionId) });
+      break;
+    case "project.upserted":
+      invalidateSoon(qc, qk.sidebar);
+      invalidateSoon(qc, qk.org);
+      invalidateSoon(qc, qk.projects);
+      invalidateSoon(qc, qk.threads);
+      break;
+    case "project.counts":
+      setProjectCounts(qc, ev.projectId, ev.counts);
+      break;
+    case "quota.updated":
+      setQuota(qc, ev.quota);
+      qc.setQueryData(qk.org, (old: unknown) => (old && typeof old === "object" ? { ...(old as object), quota: ev.quota } : old));
       break;
   }
 }
@@ -69,6 +196,8 @@ export type RealtimeOptions = {
   onConnectionChange?: (connected: boolean) => void;
 };
 
+export type Subscription = { threadId: string | null; instructionId: string | null };
+
 export class Realtime {
   private readonly qc: QueryClient;
   private readonly url: string;
@@ -78,7 +207,8 @@ export class Realtime {
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
-  private subscribedId: string | null = null;
+  private sub: Subscription = { threadId: null, instructionId: null };
+  private visible = true;
   private stopped = true;
 
   constructor(opts: RealtimeOptions) {
@@ -116,10 +246,16 @@ export class Realtime {
     }
   }
 
-  /** 詳細シートを開いている間だけ、その指示のログを購読する（1 ソケット 1 指示） */
-  subscribe(instructionId: string | null): void {
-    this.subscribedId = instructionId;
+  /** 開いているスレッド・指示（message.delta・transcript.appended の宛先） */
+  subscribe(sub: Subscription): void {
+    this.sub = sub;
     this.sendSubscription();
+  }
+
+  /** 画面が見えているか（見えている間は通知を送らない。D-88） */
+  setPresence(visible: boolean): void {
+    this.visible = visible;
+    this.send({ t: "presence", visible });
   }
 
   get connected(): boolean {
@@ -132,7 +268,9 @@ export class Realtime {
   }
 
   private sendSubscription(): void {
-    this.send(this.subscribedId ? { t: "subscribe", instructionId: this.subscribedId } : { t: "unsubscribe" });
+    const { threadId, instructionId } = this.sub;
+    if (!threadId && !instructionId) this.send({ t: "unsubscribe" });
+    else this.send({ t: "subscribe", ...(threadId ? { threadId } : {}), ...(instructionId ? { instructionId } : {}) });
   }
 
   private connect(): void {
@@ -148,7 +286,8 @@ export class Realtime {
     socket.onopen = () => {
       this.attempt = 0;
       this.onConnectionChange?.(true);
-      if (this.subscribedId) this.sendSubscription();
+      this.sendSubscription();
+      this.send({ t: "presence", visible: this.visible });
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => this.send(WS_PING), PING_INTERVAL_MS);
     };
@@ -207,15 +346,19 @@ export function getSocketFactory(): SocketFactory | undefined {
 }
 
 let current: Realtime | null = null;
-/** 開いている詳細シートの指示（接続より先にシートが開いても、つながった時点で購読する） */
-let desiredSubscription: string | null = null;
+/** 開いているスレッド・指示（接続より先に画面が開いても、つながった時点で購読する） */
+const desired: Subscription = { threadId: null, instructionId: null };
 export function setRealtime(rt: Realtime | null): void {
   current = rt;
-  rt?.subscribe(desiredSubscription);
+  rt?.subscribe({ ...desired });
 }
-export function subscribeInstruction(id: string | null): void {
-  desiredSubscription = id;
-  current?.subscribe(id);
+export function subscribeThread(threadId: string | null): void {
+  desired.threadId = threadId;
+  current?.subscribe({ ...desired });
+}
+export function subscribeInstruction(instructionId: string | null): void {
+  desired.instructionId = instructionId;
+  current?.subscribe({ ...desired });
 }
 export function getRealtime(): Realtime | null {
   return current;

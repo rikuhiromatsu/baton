@@ -1,0 +1,456 @@
+/* 組織図（13.9）: 木（≥1024px）と入れ子（<1024px）、状態の動き、委任の光 */
+
+.org-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 20px 60px;
+}
+.org-chart {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.org-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.org-stem {
+  display: block;
+  width: 2px;
+  height: 22px;
+  background: linear-gradient(180deg, var(--line-strong), var(--line-strong));
+  border-radius: 1px;
+}
+.org-columns-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.org-stem--to-bus {
+  height: 18px;
+}
+.org-columns {
+  display: flex;
+  gap: 18px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0 4px 20px;
+  scroll-snap-type: x proximity;
+}
+.org-col {
+  position: relative;
+  flex: none;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  scroll-snap-align: start;
+}
+.org-col__bus {
+  position: absolute;
+  top: 0;
+  left: -9px;
+  right: -9px;
+  height: 2px;
+  background: var(--line-strong);
+}
+.org-col:first-child .org-col__bus { left: 50%; }
+.org-col:last-child .org-col__bus { right: 50%; }
+.org-col:only-child .org-col__bus { display: none; }
+.org-col__stem {
+  align-self: center;
+  width: 2px;
+  height: 18px;
+  background: var(--line-strong);
+}
+.org-col__stem--short {
+  height: 14px;
+}
+.org-col--talking .org-col__stem {
+  background: var(--accent);
+  width: 3px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.org-members {
+  display: flex;
+  flex-direction: column;
+  padding-left: 22px;
+  position: relative;
+}
+.org-members::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 0;
+  bottom: 36px;
+  width: 2px;
+  background: var(--line-strong);
+}
+.org-member {
+  position: relative;
+  padding-top: 10px;
+}
+.org-member__stem {
+  position: absolute;
+  left: -12px;
+  top: 36px;
+  width: 12px;
+  height: 2px;
+  background: var(--line-strong);
+}
+
+.org-project {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 18px;
+  padding: 0;
+}
+.org-project__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+}
+.org-project__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.org-project__goal {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-project__counts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+}
+.org-project__total {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.org-project__more {
+  align-self: center;
+  margin-right: 8px;
+  background: transparent;
+}
+
+.org-node {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  text-align: left;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: opacity 300ms var(--ease-out), box-shadow 300ms var(--ease-out);
+  isolation: isolate;
+}
+.org-top .org-node {
+  width: 280px;
+}
+.org-node--ceo {
+  width: auto !important;
+  padding: 6px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.org-node__avatar {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  color: #fff;
+  background: var(--role-member);
+}
+.org-node__avatar--coo { background: linear-gradient(135deg, color-mix(in srgb, var(--role-coo) 70%, #fff), var(--role-coo)); }
+.org-node__avatar--leader { background: linear-gradient(135deg, color-mix(in srgb, var(--role-leader) 70%, #fff), var(--role-leader)); }
+.org-node__avatar--member { background: linear-gradient(135deg, color-mix(in srgb, var(--role-member) 70%, #fff), var(--role-member)); }
+.org-node__avatar--ceo {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  background: linear-gradient(135deg, #3A3F4B, #0B0D12);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.org-node__clock {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-warning);
+  color: #fff;
+}
+.org-node__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.org-node__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.org-node__role {
+  font-weight: var(--weight-regular);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.org-node__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.org-node__ago {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.org-node__work {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+  font-size: 12px;
+  min-width: 0;
+}
+.org-node__work-title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-node__activity {
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-node__badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+}
+/* 実行中: ふちの円錐グラデーションが 2.4 秒で 1 周 */
+.org-node__ring {
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out);
+}
+@property --org-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.org-node--running .org-node__ring,
+.org-node--talking .org-node__ring {
+  opacity: 1;
+  background: conic-gradient(from var(--org-angle), transparent 0deg, color-mix(in srgb, var(--accent) 85%, transparent) 70deg, transparent 140deg, transparent 360deg);
+  animation: org-spin 2.4s linear infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1.5px;
+}
+@keyframes org-spin {
+  to { --org-angle: 360deg; }
+}
+.org-node--awaiting_approval,
+.org-node--needs_decision {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-decision) 55%, transparent), var(--shadow-sm);
+  animation: org-pulse 2s var(--ease-out) infinite;
+}
+@keyframes org-pulse {
+  0% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-decision) 55%, transparent), 0 0 0 0 color-mix(in srgb, var(--accent-decision) 30%, transparent); }
+  70% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-decision) 55%, transparent), 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-decision) 55%, transparent), 0 0 0 0 transparent; }
+}
+.org-node--talking {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent), var(--shadow-md);
+}
+.org-node--quota_wait {
+  opacity: 0.6;
+}
+.org-node--idle .org-node__avatar {
+  filter: saturate(0.8);
+}
+
+/* 委任の光（親 → 子は青、子 → 親は緑。600ms） */
+.org-spark {
+  position: absolute;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.org-spark--down {
+  background: var(--accent);
+  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: spark-down 600ms var(--ease-out) forwards;
+}
+.org-spark--up {
+  background: var(--accent-success);
+  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent-success) 70%, transparent);
+  animation: spark-up 600ms var(--ease-out) forwards;
+}
+.org-node > .org-spark {
+  left: 50%;
+  top: -16px;
+  margin-left: -4px;
+}
+.org-member__stem .org-spark {
+  left: -4px;
+  top: -3px;
+}
+@keyframes spark-down {
+  0% { opacity: 0; transform: translateY(-24px) scale(0.6); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(14px) scale(1.2); }
+}
+@keyframes spark-up {
+  0% { opacity: 0; transform: translateY(14px) scale(0.8); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-24px) scale(1.2); }
+}
+
+/* 入れ子（<1024px） */
+.org-chart--stack .org-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 8px;
+}
+.org-chart--stack .org-top .org-node {
+  width: 100%;
+}
+.org-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.org-stack__project {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.org-stack__team {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 2px solid var(--line);
+  margin-left: 14px;
+}
+.org-stack__members {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+}
+.org-node--compact {
+  padding: 8px 10px;
+}
+
+.agent-sheet__specialty {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+}
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 14px;
+  margin: 0;
+  align-items: center;
+}
+.kv dt {
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  color: var(--text-tertiary);
+}
+.kv dd {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.kv__code {
+  color: var(--text-tertiary);
+}
+.project-sheet__ws {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.repo-options--sheet {
+  margin: 0;
+}
+.work-picker {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.work-picker__item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill-1);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 1023px) {
+  .org-scroll {
+    padding: 4px 12px 60px;
+  }
+}

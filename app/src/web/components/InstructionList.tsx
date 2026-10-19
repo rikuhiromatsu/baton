@@ -1,17 +1,18 @@
-// まとまりごとの一覧（7.3・7.5）。AnimatePresence と layout で並べ替えを動かす
+// まとまりごとの指示カード（v1 7.3・DESIGN-v2 13.8）。AnimatePresence と layout で並べ替えを動かす
 import { useEffect, type ReactNode } from "react";
-import { GroupExitingContext } from "./groupExiting.ts";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { STATUS_LABELS, TESTIDS, type InstructionSummary } from "@baton/shared";
 import { groupForHome, sortArchived } from "../lib/sort.ts";
 import { spring } from "../motion/tokens.ts";
 import { useUi } from "../state/ui.ts";
+import { GroupExitingContext } from "./groupExiting.ts";
 import { SwipeableCard } from "./SwipeableCard.tsx";
 
 type Props = {
   items: readonly InstructionSummary[];
   now: number;
   onOpen: (item: InstructionSummary) => void;
+  projectId?: string | null;
 };
 
 function GroupSection({ status, children }: { status: InstructionSummary["status"]; children: ReactNode }) {
@@ -35,8 +36,8 @@ function GroupSection({ status, children }: { status: InstructionSummary["status
   );
 }
 
-export function InstructionList({ items, now, onOpen }: Props) {
-  const groups = groupForHome(items, now);
+export function InstructionList({ items, now, onOpen, projectId = null }: Props) {
+  const groups = groupForHome(items, now, projectId);
   const revealed = useUi((s) => s.listRevealed);
   useEffect(() => {
     if (!revealed) {
@@ -50,10 +51,11 @@ export function InstructionList({ items, now, onOpen }: Props) {
       <AnimatePresence initial={false}>
         {groups.map((g) => (
           <GroupSection key={g.status} status={g.status}>
-            <h2 className="group__label">
+            <h3 className="group__label">
+              <span className={`group__dot status-dot status-dot--${g.status}`} aria-hidden="true" />
               <span>{STATUS_LABELS[g.status]}</span>
               <span className="group__count">{g.items.length}</span>
-            </h2>
+            </h3>
             <ul className="group__items">
               <AnimatePresence initial={!revealed}>
                 {g.items.map((item) => {

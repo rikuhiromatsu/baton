@@ -1,32 +1,33 @@
-// フリックできる指示カード（設計書 7.6）。判定は decideSwipe（純粋関数）に任せる
+// フリックできる指示カード（v1 7.6・DESIGN-v2 13.8）。判定は decideSwipe（純粋関数）に任せる。
+// v2: 開いた判断のある running は判断待ちのまとまり（displayGroup）、右フリックは詳細を開くだけ（承認はシートで「許可」）
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { animate, motion, useIsPresent, useMotionValue, useMotionValueEvent, useReducedMotion, useTransform } from "motion/react";
-
-/** 下地は、カードがどいた分（＋角丸の分）だけ見せる。半透明のカード越しに色が透けないように */
-const UNDERLAY_OVERLAP = 24;
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ACTION_COLORS,
   ACTION_LABELS,
-  SWIPE_MAP,
   TESTIDS,
   UI_TEXT,
+  UI_TEXT_V2,
+  displayGroup,
+  swipeActionFor,
   type CeoAction,
   type InstructionSummary,
   type SwipeDirection,
   type SwipeOutcome,
 } from "@baton/shared";
-import { deliver, performTransition } from "../api/actions.ts";
+import { performTransition } from "../api/actions.ts";
 import { decideSwipe, lockAxis, resistOffset, swipeThreshold, type Axis } from "../lib/decideSwipe.ts";
 import { cardTitle, splitLimitError } from "../lib/text.ts";
 import { relativeTime } from "../lib/time.ts";
 import { haptic } from "../motion/haptics.ts";
 import { collapseTween, easeOut, spring } from "../motion/tokens.ts";
-import { useOutbox } from "../state/outbox.ts";
 import { useUi } from "../state/ui.ts";
 import { ActionIcon, IconClock } from "./Icons.tsx";
 import { useGroupExiting } from "./groupExiting.ts";
 
+/** 下地は、カードがどいた分（＋角丸の分）だけ見せる。半透明のカード越しに色が透けないように */
+const UNDERLAY_OVERLAP = 24;
 const LONG_PRESS_MS = 520;
 
 /** 長押しメニュー・キーボードから、そのカードの操作を（抜けるアニメーション込みで）実行するための登録簿 */
@@ -46,9 +47,6 @@ type Gesture = {
   axis: Axis | null;
   crossed: boolean;
   longPressFired: boolean;
-  lastDx: number;
-  lastDy: number;
-  /** 速度を出すための直近の位置（pointer イベントの時刻つき） */
   samples: { t: number; x: number }[];
 };
 
@@ -87,28 +85,24 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
   const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const [flown, setFlown] = useState(false);
-  // 別のまとまりへ移るときの抜け殻。共有要素（layoutId）から外して、すぐ消えるようにする。
-  // 外さないと、同じ layoutId の新しいカードと組になって抜け殻が残り続ける
+  // 別のまとまりへ移るときの抜け殻。共有要素（layoutId）と testid から外して、すぐ消えるようにする
   const selfPresent = useIsPresent();
   const groupExiting = useGroupExiting();
   const isPresent = selfPresent && !groupExiting;
   const [crossedDir, setCrossedDir] = useState<SwipeDirection | null>(null);
   const [popKey, setPopKey] = useState(0);
-  const outboxState = useOutbox((s) => s.items[item.clientId]?.state);
   const shakeAt = useUi((s) => s.shakes[item.clientId]);
-  const isLocal = item.id === item.clientId && outboxState !== undefined;
 
-  const map = SWIPE_MAP[item.status];
-  const rightOutcome = isLocal ? null : map.right;
-  const leftOutcome = isLocal ? null : map.left;
+  const group = displayGroup(item);
+  const rightOutcome = swipeActionFor(item, "right");
+  const leftOutcome = swipeActionFor(item, "left");
 
-  // 下地の不透明度とアイコンの大きさ（横移動量に合わせて）
   const rightOpacity = useTransform(x, (v) => (v > 0 && rightOutcome ? Math.min(1, v / swipeThreshold(widthRef.current)) : 0));
   const leftOpacity = useTransform(x, (v) => (v < 0 && leftOutcome ? Math.min(1, -v / swipeThreshold(widthRef.current)) : 0));
   const rightScale = useTransform(rightOpacity, [0, 1], [0.6, 1]);
+  const leftScale = useTransform(leftOpacity, [0, 1], [0.6, 1]);
   const rightClip = useTransform(x, (v) => `inset(0 calc(100% - ${Math.max(0, v) + UNDERLAY_OVERLAP}px) 0 0 round var(--radius-lg))`);
   const leftClip = useTransform(x, (v) => `inset(0 0 0 calc(100% - ${Math.max(0, -v) + UNDERLAY_OVERLAP}px) round var(--radius-lg))`);
-  const leftScale = useTransform(leftOpacity, [0, 1], [0.6, 1]);
 
   const [dir, setDir] = useState<"left" | "right" | null>(null);
   useMotionValueEvent(x, "change", (v) => {
@@ -145,7 +139,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     async (outcome: Exclude<SwipeOutcome, null>, direction: SwipeDirection) => {
       haptic();
       if (outcome === "open_decision") {
-        // カードを元に戻してから判断シートを開く
+        // カードを元に戻してから判断（承認）のシートを開く
         await animate(x, 0, spring.snappy);
         onOpen(item);
         return;
@@ -157,7 +151,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       }
       const sign = direction === "right" ? 1 : -1;
       measure();
-      // 同じ方向へ画面外（幅 × 1.2。広い画面ではそれでは画面内に残るので、画面の端の外まで）へ 200ms で抜ける
+      // 同じ方向へ画面外（幅 × 1.2。広い画面ではそれでは画面内に残るので、列の端の外まで）へ 200ms で抜ける
       const rect = cardRef.current?.getBoundingClientRect();
       const toEdge = rect ? (sign > 0 ? window.innerWidth - rect.left + 24 : rect.right + 24) : 0;
       await animate(x, sign * Math.max(widthRef.current * 1.2, toEdge), { duration: reduce ? 0.12 : 0.2, ease: easeOut });
@@ -189,7 +183,6 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
   }, [item.clientId, runDirection]);
 
   const openMenuAt = (clientX: number, clientY: number) => {
-    if (isLocal) return;
     useUi.getState().setActionMenu({ instruction: item, x: clientX, y: clientY });
   };
 
@@ -207,17 +200,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     if (dragging && dragging !== item.id) return;
     measure();
     suppressClick.current = false;
-    gesture.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      axis: null,
-      crossed: false,
-      longPressFired: false,
-      lastDx: 0,
-      lastDy: 0,
-      samples: [{ t: e.timeStamp, x: 0 }],
-    };
+    gesture.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, axis: null, crossed: false, longPressFired: false, samples: [{ t: e.timeStamp, x: 0 }] };
     cancelLongPress();
     const { clientX, clientY } = e;
     longPress.current = setTimeout(() => {
@@ -235,15 +218,13 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     if (!g || g.pointerId !== e.pointerId || g.longPressFired) return;
     const dx = e.clientX - g.startX;
     const dy = e.clientY - g.startY;
-    g.lastDx = dx;
-    g.lastDy = dy;
     g.samples.push({ t: e.timeStamp, x: dx });
     if (g.samples.length > 12) g.samples.shift();
     if (g.axis === null) {
       const axis = lockAxis(dx, dy);
       if (axis === null) return;
       cancelLongPress();
-      if (axis === "y" || isLocal) {
+      if (axis === "y") {
         // 縦スクロールはブラウザに任せる
         gesture.current = null;
         return;
@@ -263,8 +244,8 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     }
     if (g.axis !== "x") return;
     suppressClick.current = true;
-    const d = decideSwipe({ x: dx, y: dy }, { x: 0, y: 0 }, widthRef.current, item.status, "x");
-    x.set(resistOffset(dx, d.allowed && !isLocal));
+    const d = decideSwipe({ x: dx, y: dy }, { x: 0, y: 0 }, widthRef.current, item, "x");
+    x.set(resistOffset(dx, d.allowed));
     if (d.pastThreshold !== g.crossed) {
       g.crossed = d.pastThreshold;
       if (d.pastThreshold) {
@@ -285,10 +266,10 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
     if (g.axis === "x") {
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
-      // 離した位置が最後の move と同じなら、その時刻は速度に入れない（指は止まっていない。Motion のドラッグと同じ扱い）
+      // 離した位置が最後の move と同じなら、その時刻は速度に入れない（指は止まっていない）
       if (g.samples[g.samples.length - 1]?.x !== dx) g.samples.push({ t: e.timeStamp, x: dx });
       const vx = velocityFromSamples(g.samples);
-      const d = decideSwipe({ x: dx, y: dy }, { x: vx, y: 0 }, widthRef.current, item.status, "x");
+      const d = decideSwipe({ x: dx, y: dy }, { x: vx, y: 0 }, widthRef.current, item, "x");
       endGesture();
       if (d.commit && d.outcome && d.direction) void commit(d.outcome, d.direction);
       else settleBack();
@@ -308,17 +289,16 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       suppressClick.current = false;
       return;
     }
-    if (isLocal) return;
     onOpen(item);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
       e.preventDefault();
-      if (!isLocal) runDirection(e.key === "ArrowRight" ? "right" : "left");
+      runDirection(e.key === "ArrowRight" ? "right" : "left");
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      if (!isLocal) onOpen(item);
+      onOpen(item);
     } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
       e.preventDefault();
       const r = e.currentTarget.getBoundingClientRect();
@@ -328,8 +308,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
 
   const title = cardTitle(item);
   const progress = item.taskCounts.total > 0 ? item.taskCounts.done / item.taskCounts.total : 0;
-  const failedSend = outboxState === "failed";
-  const waiting = outboxState === "waiting" || (item.notBefore !== null && item.notBefore > now);
+  const waiting = item.notBefore !== null && item.notBefore > now;
   const limit = item.status === "failed" && item.error ? splitLimitError(item.error) : null;
 
   const underlay = (side: "right" | "left", outcome: SwipeOutcome) => {
@@ -348,13 +327,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       >
         {outcome && (
           <motion.span className="underlay__content" style={{ scale }}>
-            <motion.span
-              key={crossedDir === side ? popKey : "rest"}
-              className="underlay__icon"
-              initial={crossedDir === side ? { scale: 1.15 } : false}
-              animate={{ scale: 1 }}
-              transition={spring.pop}
-            >
+            <motion.span key={crossedDir === side ? popKey : "rest"} className="underlay__icon" initial={crossedDir === side ? { scale: 1.15 } : false} animate={{ scale: 1 }} transition={spring.pop}>
               <ActionIcon action={outcome} />
             </motion.span>
             <span className="underlay__label">{outcomeLabel(outcome)}</span>
@@ -386,8 +359,7 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
         data-testid={isPresent ? TESTIDS.instructionCard : undefined}
         data-id={isPresent ? item.id : undefined}
         data-status={item.status}
-        data-local={isLocal ? (outboxState ?? "") : undefined}
-        data-failed-send={failedSend ? "true" : undefined}
+        data-group={group}
         tabIndex={0}
         role="button"
         aria-label={title}
@@ -411,18 +383,31 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
       >
         <ReviewSweep clientId={item.clientId} status={item.status} />
         <div className="card__row">
-          <span className={`status-dot status-dot--${item.status}`} aria-hidden="true" />
+          <span className={`status-dot status-dot--${group}`} aria-hidden="true" />
           <div className="card__main">
             <div className="card__title">{title}</div>
-            {(item.projectName || waiting) && (
-              <div className="card__meta">
-                {waiting && (
-                  <span className="card__clock" title={item.notBefore ? new Date(item.notBefore).toLocaleString() : undefined}>
-                    <IconClock size={13} />
-                  </span>
-                )}
-                {item.projectName && <span className="card__project">{item.projectName}</span>}
-              </div>
+            <div className="card__meta">
+              {waiting && (
+                <span className="card__clock">
+                  <IconClock size={13} />
+                </span>
+              )}
+              {item.projectName && <span className="card__project">{item.projectName}</span>}
+              {item.revision > 1 && (
+                <span className="rev">
+                  {UI_TEXT_V2.instruction.rev} {item.revision}
+                </span>
+              )}
+              {item.talkingWithCeo && (
+                <span className="talking" data-testid={TESTIDS.talkingBadge}>
+                  {UI_TEXT_V2.sidebar.talking}
+                </span>
+              )}
+            </div>
+            {item.activity && item.status === "running" && (
+              <motion.div key={item.activity} className="card__activity" initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} transition={spring.gentle}>
+                {item.activity}
+              </motion.div>
             )}
             {limit && (
               <div className="card__error">
@@ -431,27 +416,22 @@ export function SwipeableCard({ item, now, onOpen, enterDelay = 0 }: Props) {
               </div>
             )}
           </div>
-          <span className="card__time">{relativeTime(item.statusChangedAt, now)}</span>
+          <div className="card__side">
+            <span className="card__time">{relativeTime(item.statusChangedAt, now)}</span>
+            {item.activeAgents.length > 0 && (
+              <span className="avatars" aria-hidden="true">
+                {item.activeAgents.map((a) => (
+                  <span key={a.agentId} className={`avatars__item avatars__item--${a.role}`}>
+                    {a.name.charAt(0)}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
         </div>
         {item.taskCounts.total > 0 && (
           <div className="progress" aria-hidden="true">
             <motion.div className="progress__bar" initial={false} animate={{ scaleX: progress }} transition={spring.smooth} />
-          </div>
-        )}
-        {failedSend && (
-          <div className="card__resend">
-            <span className="card__resend-text">{UI_TEXT.sendFailed}</span>
-            <button
-              type="button"
-              className="chip-button chip-button--danger"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                void deliver(qc, item.clientId);
-              }}
-            >
-              {UI_TEXT.resend}
-            </button>
           </div>
         )}
       </motion.div>
