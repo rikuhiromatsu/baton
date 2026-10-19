@@ -1,0 +1,35 @@
+{
+  "name": "baton",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "app",
+    "runner",
+    "e2e"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npm run dev -w app",
+    "typecheck": "tsc -p packages/shared && tsc -p app/tsconfig.worker.json && tsc -p app/tsconfig.web.json && tsc -p runner && tsc -p e2e",
+    "test": "vitest run && npm run test:worker -w app",
+    "test:unit": "vitest run",
+    "test:e2e": "npm test -w e2e",
+    "build": "npm run build -w app",
+    "deploy": "npm run build && node scripts/assert-no-test-routes.mjs && npm run db:migrate:remote -w app && npm run deploy -w app && node scripts/smoke-prod.mjs",
+    "smoke:prod": "node scripts/smoke-prod.mjs",
+    "ai:probe": "npm run ai:probe -w app"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "@types/node": "^26.6.5"
+  },
+  "allowScripts": {
+    "workerd@1.20261019.1": true,
+    "workerd@1.20261012.1": true,
+    "esbuild@0.28.2": true
+  }
+}

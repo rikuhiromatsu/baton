@@ -1,0 +1,21 @@
+{
+  "name": "@baton/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "dev": "node --watch src/main.ts",
+    "register": "node scripts/register.ts",
+    "install-agent": "node scripts/install-agent.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@baton/shared": "*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.5"
+  }
+}

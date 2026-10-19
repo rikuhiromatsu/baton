@@ -1,0 +1,44 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "baton",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "baton",
+      "database_id": "a719385a-6f8f-41d9-9568-403e377f3709",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "BatonHub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BatonHub"] }],
+  "ai": { "binding": "AI" },
+  "vars": {
+    "BATON_ENV": "production",
+    "APP_ORIGIN": "https://baton.rikuhiromatsu.workers.dev"
+  },
+  "env": {
+    "e2e": {
+      // e2e では ai バインディングを書かない → ScriptedAiClient（設計書 8.2）
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "baton-e2e",
+          "database_id": "00000000-0000-0000-0000-0000000000e2",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "BatonHub" }] },
+      "vars": { "BATON_ENV": "e2e", "APP_ORIGIN": "http://localhost:8790" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@baton/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "install-browsers": "playwright install chromium webkit"
+  },
+  "dependencies": { "@baton/shared": "*" },
+  "devDependencies": { "@playwright/test": "^1.64.1", "@types/node": "^26.6.5" }
+}

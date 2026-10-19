@@ -1,0 +1,5 @@
+# e2e 用（CLOUDFLARE_ENV=e2e）。本番には登録しない
+E2E_TEST_SECRET=e2e-local-secret
+ALLOWED_EMAILS=ceo@example.com
+GOOGLE_CLIENT_ID=e2e-dummy
+GOOGLE_CLIENT_SECRET=e2e-dummy
