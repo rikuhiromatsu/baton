@@ -13,6 +13,7 @@ import {
 } from "@baton/shared";
 import {
   browser,
+  call,
   claim,
   clearWork,
   createProject,
@@ -87,6 +88,12 @@ describe("W28 プロジェクト案", () => {
     const inbox = await env.DB.prepare("SELECT kind, wakes, status FROM thread_inbox WHERE thread_id = 'thread-coo' AND kind = 'project_created' AND json_extract(payload, '$.projectId') = ?").bind(out.project.id).first();
     expect(inbox).toEqual({ kind: "project_created", wakes: 1, status: "pending" });
     expect((await browser(s, `/api/project-proposals/${body.id}/accept`, { body: {} })).status).toBe(409);
+    // 1 つの案を読む（再読み込みでカードを描き直す）。無い ID は 404、未ログインは 401
+    const got = await browser(s, `/api/project-proposals/${body.id}`);
+    expect(got.status).toBe(200);
+    expect(((await got.json()) as { proposal: ProjectProposal }).proposal).toMatchObject({ id: body.id, status: "accepted", projectId: out.project.id, goal: "コーヒー紹介の台本を 10 本", members: [{ name: "リサーチ", profile: "researcher" }] });
+    expect((await browser(s, `/api/project-proposals/${crypto.randomUUID()}`)).status).toBe(404);
+    expect((await call(`/api/project-proposals/${body.id}`)).status).toBe(401);
   });
 
   it("作業場所を選び直せる（候補外の repoPath は 400）。見送りは COO に知らせるだけ。同じ slug の古い案は置き換え", async () => {
