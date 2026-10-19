@@ -1,12 +1,12 @@
-// e2e 専用のルート（設計書 6.5）。index.ts の import.meta.env.MODE === "e2e" の中から動的 import される。
+// e2e 専用のルート（v1 設計書 6.5）。index.ts の import.meta.env.MODE === "e2e" の中から動的 import される。
 // 本番ビルドではこのファイルごと成果物に入らない。
 import { Hono } from "hono";
-import { SessionInfoSchema, TEST_API_PATHS, TestLoginInput, TestRunnerTokenOutput, type SessionInfo } from "@baton/shared";
-import { getRunnerStatus } from "../db/runners.ts";
+import { SessionInfoSchema, TEST_API_PATHS, TestLoginInput, TestRunnerTokenOutput } from "@baton/shared";
 import { newId, randomToken, sha256Hex } from "../lib/crypto.ts";
 import { checked, readJson } from "../lib/validate.ts";
 import { createSession, setSessionCookie } from "../middleware/auth.ts";
 import type { AppEnv } from "../types.ts";
+import { sessionInfo } from "./session.ts";
 
 export const testOnlyRoutes = new Hono<AppEnv>();
 
@@ -23,13 +23,7 @@ testOnlyRoutes.post(TEST_API_PATHS.testLogin, async (c) => {
     .first<{ id: string; email: string; name: string; picture_url: string | null }>())!;
   const { token, csrfToken } = await createSession(c.env.DB, user.id, c.req.header("User-Agent") ?? "", now);
   setSessionCookie(c, token);
-  const info: SessionInfo = {
-    user: { id: user.id, email: user.email, name: user.name, pictureUrl: user.picture_url },
-    csrfToken,
-    runner: await getRunnerStatus(c.env.DB, now),
-    env: c.env.BATON_ENV,
-  };
-  return c.json(checked(c.env, SessionInfoSchema, info));
+  return c.json(checked(c.env, SessionInfoSchema, await sessionInfo(c.env, user, csrfToken, now)));
 });
 
 testOnlyRoutes.post(TEST_API_PATHS.testRunnerToken, async (c) => {

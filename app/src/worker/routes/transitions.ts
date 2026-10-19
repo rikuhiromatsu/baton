@@ -1,9 +1,9 @@
-// POST /api/transitions/:id/undo（設計書 3.5・D-25）
+// POST /api/transitions/:id/undo（v1 設計書 3.5・D-25）
 import { Hono } from "hono";
 import { LIMITS, NO_UNDO_ACTIONS, UndoOutput, type CeoAction, type InstructionStatus, type RunnerServerEvent } from "@baton/shared";
 import { getSummary, transitionAfterUpdate } from "../db/instructions.ts";
 import type { TransitionRow } from "../db/rows.ts";
-import { notifyRunners, publish } from "../hub/broadcast.ts";
+import { instructionEvents, notifyRunners, publish } from "../hub/broadcast.ts";
 import { newId } from "../lib/crypto.ts";
 import { conflict, notFound } from "../lib/errors.ts";
 import { checked } from "../lib/validate.ts";
@@ -33,20 +33,17 @@ transitionRoutes.post("/:id/undo", async (c) => {
   const sets = ["status = ?", "status_changed_at = ?", "updated_at = ?"];
   const args: unknown[] = [back, now, now];
   if (t.action === "approve") sets.push("completed_at = NULL");
-  if (back === "queued") sets.push("lease_runner_id = NULL", "lease_expires_at = NULL", "not_before = NULL");
+  if (back === "queued") sets.push("lease_runner_id = NULL", "lease_expires_at = NULL", "not_before = NULL", "phase = 'coo'");
   const undoId = newId();
   const results = await db.batch([
     db.prepare(`UPDATE instructions SET ${sets.join(", ")} WHERE id = ? AND status = ?`).bind(...args, t.instruction_id, t.to_status),
     transitionAfterUpdate(db, { id: undoId, instructionId: t.instruction_id, from: t.to_status, to: back, action: "undo", actor: "ceo", now }),
-    db
-      .prepare("UPDATE status_transitions SET undone = 1 WHERE id = ? AND EXISTS (SELECT 1 FROM status_transitions WHERE id = ?)")
-      .bind(t.id, undoId),
+    db.prepare("UPDATE status_transitions SET undone = 1 WHERE id = ? AND EXISTS (SELECT 1 FROM status_transitions WHERE id = ?)").bind(t.id, undoId),
   ]);
   if (results[0]?.meta.changes !== 1) throw conflict("status changed");
 
-  const summary = (await getSummary(db, t.instruction_id))!;
-  await publish(c.env, [{ t: "instruction.upserted", instruction: summary }]);
+  await publish(c.env, await instructionEvents(c.env, [t.instruction_id]));
   const runnerEvents: RunnerServerEvent[] = back === "queued" ? [{ t: "work.available" }] : [];
   await notifyRunners(c.env, runnerEvents);
-  return c.json(checked(c.env, UndoOutput, { instruction: summary }));
+  return c.json(checked(c.env, UndoOutput, { instruction: (await getSummary(db, t.instruction_id))! }));
 });

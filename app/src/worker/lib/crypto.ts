@@ -21,3 +21,21 @@ export async function sha256Hex(input: string): Promise<string> {
 export function newId(): string {
   return crypto.randomUUID();
 }
+
+export function base64urlDecode(text: string): Uint8Array<ArrayBuffer> {
+  const b64 = text.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((text.length + 3) % 4);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function concatBytes(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}

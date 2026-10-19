@@ -19,7 +19,7 @@ function e2eBuildMode(): Plugin {
   };
 }
 
-// Workers 統合テスト（設計書 8.3 W1〜W17）。本物の workerd 上で D1・DO・Worker を動かす
+// Workers 統合テスト（v1 設計書 8.3、DESIGN-v2 15.3 の W1〜W6・W8〜W13・W15〜W36・W40〜W45）。本物の workerd 上で D1・DO・Worker を動かす
 export default defineConfig({
   plugins: [
     e2eBuildMode(),
@@ -31,6 +31,8 @@ export default defineConfig({
       return {
         wrangler: { configPath: "./wrangler.jsonc", environment: "e2e" },
         miniflare: {
+          // W26 用: 0001 → v1 の形のデータ → 0002 を順に当てる空の D1
+          d1Databases: { MIGRATION_DB: "migration-test" },
           // .dev.vars.e2e は git 管理外なので、CI でも同じ値になるようここで与える
           bindings: {
             TEST_MIGRATIONS: migrations,
@@ -39,6 +41,11 @@ export default defineConfig({
             ALLOWED_EMAILS: "ceo@example.com, Second@Example.com",
             GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
             GOOGLE_CLIENT_SECRET: "test-client-secret",
+            // Web Push のテスト用の鍵（.dev.vars.e2e.example と同じ。本番には登録しない）
+            VAPID_PUBLIC_KEY: "BKtph3lHgfzgmSw96CXfaU3s_8bQtdxKZiV4gEgCPAIdVUPMlyStfa0-EctLKcS5O8dKxHeUt5GlCwnrGep7ld8",
+            VAPID_PRIVATE_KEY: "nw7OIm-PeVRjO-GAWwpuOesTi1gYIsIcoKlsXZScOdc",
+            BATON_PUSH_BATCH_MS: "300",
+            BATON_CONVERSATION_BREAK_MS: "60000",
           },
         },
       };
