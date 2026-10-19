@@ -160,38 +160,66 @@ export function MainLayout() {
     }
   }, [pathname, bp]);
 
-  // モバイル: 画面の左端から右へのスワイプ（リーダーのスレッドでは COO に戻る。ほかはドロワー）
+  // モバイル: 画面の左端から右へのスワイプ（リーダーのスレッドでは COO に戻る。ほかはドロワー）。
+  // タッチは途中でブラウザがスクロールに切り替えると pointercancel が来るので、touch のイベントでも見る
   useEffect(() => {
     if (!narrow) return;
-    let start: { x: number; y: number; id: number } | null = null;
-    const down = (e: PointerEvent) => {
-      if (e.pointerType === "mouse") return;
-      start = e.clientX <= EDGE_PX ? { x: e.clientX, y: e.clientY, id: e.pointerId } : null;
+    // 指の追跡は pointer と touch で別々に持つ（どちらかが届けば動く）
+    const starts: Record<"pointer" | "touch", { x: number; y: number; id: number } | null> = { pointer: null, touch: null };
+    let fired = false;
+    const begin = (kind: "pointer" | "touch", x: number, y: number, id: number) => {
+      if (kind === "pointer" || !starts.pointer) fired = false;
+      starts[kind] = x <= EDGE_PX ? { x, y, id } : null;
     };
-    const move = (e: PointerEvent) => {
-      if (!start || e.pointerId !== start.id) return;
-      const dx = e.clientX - start.x;
-      const dy = e.clientY - start.y;
-      if (Math.abs(dy) > 40 && Math.abs(dy) > dx) start = null;
+    const track = (kind: "pointer" | "touch", x: number, y: number, id: number) => {
+      const st = starts[kind];
+      if (!st || st.id !== id || fired) return;
+      const dx = x - st.x;
+      const dy = y - st.y;
+      if (Math.abs(dy) > 40 && Math.abs(dy) > dx) starts[kind] = null;
       else if (dx > 56) {
-        start = null;
+        fired = true;
+        starts.pointer = null;
+        starts.touch = null;
         const r = parseRoute(window.location.pathname);
         if (r.kind === "leader") void navigate({ to: "/" });
         else useUi.getState().setDrawerOpen(true);
       }
     };
-    const up = () => {
-      start = null;
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") begin("pointer", e.clientX, e.clientY, e.pointerId);
     };
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerup", up, true);
-    window.addEventListener("pointercancel", up, true);
+    const move = (e: PointerEvent) => track("pointer", e.clientX, e.clientY, e.pointerId);
+    const up = (e: PointerEvent) => {
+      if (starts.pointer?.id === e.pointerId) starts.pointer = null;
+    };
+    const tStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t && e.touches.length === 1) begin("touch", t.clientX, t.clientY, t.identifier);
+    };
+    const tMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t) track("touch", t.clientX, t.clientY, t.identifier);
+    };
+    const tEnd = () => {
+      starts.touch = null;
+    };
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener("pointerdown", down, opts);
+    window.addEventListener("pointermove", move, opts);
+    window.addEventListener("pointerup", up, opts);
+    window.addEventListener("touchstart", tStart, opts);
+    window.addEventListener("touchmove", tMove, opts);
+    window.addEventListener("touchend", tEnd, opts);
+    window.addEventListener("touchcancel", tEnd, opts);
     return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerup", up, true);
-      window.removeEventListener("pointercancel", up, true);
+      window.removeEventListener("pointerdown", down, opts);
+      window.removeEventListener("pointermove", move, opts);
+      window.removeEventListener("pointerup", up, opts);
+      window.removeEventListener("touchstart", tStart, opts);
+      window.removeEventListener("touchmove", tMove, opts);
+      window.removeEventListener("touchend", tEnd, opts);
+      window.removeEventListener("touchcancel", tEnd, opts);
     };
   }, [narrow, navigate]);
 
