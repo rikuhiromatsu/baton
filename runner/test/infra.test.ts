@@ -6,7 +6,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { HttpBatonApi } from "../src/api.ts";
 import { loadConfig, parseEnvFile } from "../src/config.ts";
-import { ConflictError, NetworkError } from "../src/errors.ts";
+import { EMPTY_QUOTA } from "@baton/shared";
+import { ConflictError, NetworkError, StaleRevisionError } from "../src/errors.ts";
+
+const CLAIM = { kinds: ["thread" as const], activeThreadIds: [], activeInstructionIds: [], quotaPaused: false };
 import { silentLogger } from "../src/log.ts";
 import { RunnerSocket, backoffMs, parseRunnerMessage, runnerWsUrl, type WsLike } from "../src/ws.ts";
 import { installAgent, renderPlist } from "../scripts/install-agent.ts";
@@ -23,12 +26,17 @@ describe("設定", () => {
     const { dir, cleanup } = await tempDir();
     cleanups.push(cleanup);
     const f = path.join(dir, "runner.env");
-    await (await import("node:fs/promises")).writeFile(f, "# c\nBATON_URL=https://x.example/\nBATON_RUNNER_TOKEN='abc'\nBATON_DATA_DIR=~/baton-data\nBATON_LIMIT_MEMBER_TURNS=5\n");
-    const c = loadConfig({ BATON_ENV_FILE: f, BATON_URL: "http://localhost:8790", HOME: dir });
+    await (await import("node:fs/promises")).writeFile(f, "# c\nBATON_URL=https://x.example/\nBATON_RUNNER_TOKEN='abc'\nBATON_DATA_DIR=~/baton-data\nBATON_LIMIT_MEMBER_PARALLEL=1\nBATON_MODEL_MEMBER=haiku\nBATON_CODEX_REVIEW=off\n");
+    const c = loadConfig({ BATON_ENV_FILE: f, BATON_URL: "http://localhost:8790", BATON_HOME: dir });
     expect(c.batonUrl).toBe("http://localhost:8790");
     expect(c.token).toBe("abc");
     expect(c.dataDir.endsWith("baton-data")).toBe(true);
-    expect(c.limits.memberTurns).toBe(5);
+    expect(c.limits.memberParallel).toBe(1);
+    expect(c.modelOverride).toEqual({ member: "haiku" });
+    expect(c.codexReview).toBe(false);
+    expect(c.claudeBin).toBe(path.join(dir, ".local/bin/claude"));
+    expect(c.limits.approvalWaitMs).toBe(600_000);
+    expect(loadConfig({ BATON_URL: "http://x", BATON_RUNNER_TOKEN: "t", BATON_APPROVAL_WAIT_MS: "3000", BATON_THREAD_IDLE_MS: "2000", BATON_CONVERSATION_BREAK_MS: "3000", BATON_QUOTA_RESUME_MARGIN_MS: "0" }).limits).toMatchObject({ approvalWaitMs: 3000, threadIdleMs: 2000, conversationBreakMs: 3000, quotaResumeMarginMs: 0 });
     expect(c.localPort).toBe(7777);
     expect(c.localAuth).toBe(true);
     expect(c.allowedOrigins).toEqual(["https://baton.rikuhiromatsu.workers.dev", "http://localhost:8790"]);
@@ -54,22 +62,27 @@ describe("HttpBatonApi", () => {
       n++;
       if (req.url === "/api/runner/heartbeat") {
         res.writeHead(n < 3 ? 503 : 200, { "content-type": "application/json" });
-        res.end(n < 3 ? '{"error":{"code":"internal","message":"x"}}' : JSON.stringify({ serverTime: 1, cancelInstructionIds: [] }));
+        res.end(n < 3 ? '{"error":{"code":"internal","message":"x"}}' : JSON.stringify({ serverTime: 1, cancelInstructionIds: [], interruptSessionIds: [], interruptThreadIds: [] }));
       } else if (req.url === "/api/runner/claim") {
         res.writeHead(204);
         res.end();
+      } else if (req.url?.startsWith("/api/runner/instructions/stale")) {
+        res.writeHead(409, { "content-type": "application/json" });
+        res.end('{"error":{"code":"stale_revision","message":"stale","details":{"revision":2}}}');
       } else {
         res.writeHead(409, { "content-type": "application/json" });
         res.end('{"error":{"code":"conflict","message":"not leased"}}');
       }
     });
     const api = new HttpBatonApi({ baseUrl: url, token: "t", retryDelaysMs: [0, 0, 0] });
-    expect(await api.heartbeat({ version: "1", tailnetUrl: null, activeInstructionIds: [], maxConcurrent: 2 })).toEqual({ serverTime: 1, cancelInstructionIds: [] });
+    const hb = { version: "1", tailnetUrl: null, activeInstructionIds: [], activeSessionIds: [], activeThreadIds: [], quota: EMPTY_QUOTA, claudeVersion: null, claudeAuth: "ok" as const, profiles: [] };
+    expect(await api.heartbeat(hb)).toEqual({ serverTime: 1, cancelInstructionIds: [], interruptSessionIds: [], interruptThreadIds: [] });
     expect(n).toBe(3);
-    expect(await api.claim({ maxConcurrent: 2, activeIds: [] })).toBeNull();
+    expect(await api.claim(CLAIM)).toBeNull();
     const before = n;
-    await expect(api.release("00000000-0000-4000-8000-000000000000", { reason: "shutdown", notBefore: null })).rejects.toBeInstanceOf(ConflictError);
+    await expect(api.releaseInstruction("00000000-0000-4000-8000-000000000000", { reason: "shutdown", notBefore: null })).rejects.toBeInstanceOf(ConflictError);
     expect(n - before).toBe(1);
+    await expect(api.patchInstruction("stale", { expectedRevision: 1 })).rejects.toBeInstanceOf(StaleRevisionError);
   });
 
   it("応答が来ない接続は 1 回ごとの時間切れで再試行し、claim が止まったままにならない", async () => {
@@ -81,13 +94,13 @@ describe("HttpBatonApi", () => {
       res.end();
     });
     const api = new HttpBatonApi({ baseUrl: url, token: "t", retryDelaysMs: [0, 0], requestTimeoutMs: 100 });
-    expect(await api.claim({ maxConcurrent: 2, activeIds: [] })).toBeNull();
+    expect(await api.claim(CLAIM)).toBeNull();
     expect(n).toBe(2);
   });
 
   it("届かなければ NetworkError（再試行のあと）", async () => {
     const api = new HttpBatonApi({ baseUrl: "http://127.0.0.1:1", token: "t", retryDelaysMs: [0] });
-    await expect(api.claim({ maxConcurrent: 2, activeIds: [] })).rejects.toBeInstanceOf(NetworkError);
+    await expect(api.claim(CLAIM)).rejects.toBeInstanceOf(NetworkError);
   });
 });
 
@@ -119,8 +132,14 @@ describe("WebSocket", () => {
     sock.start();
     expect(made[0]).toMatchObject({ url: "ws://localhost:8790/api/runner/ws", headers: { authorization: "Bearer tok" } });
     made[0]!.ws.onopen?.({});
-    made[0]!.ws.onmessage?.({ data: '{"t":"decision.answered","instructionId":"x"}' });
-    expect(events).toEqual([{ t: "work.available" }, { t: "decision.answered", instructionId: "x" }]);
+    made[0]!.ws.onmessage?.({ data: '{"t":"decision.answered","decisionId":"d","sessionId":null,"instructionId":"x"}' });
+    made[0]!.ws.onmessage?.({ data: '{"t":"batch","items":[{"t":"thread.input","threadId":"thread-coo","inboxId":"i"},{"t":"session.interrupt","sessionId":"s"}]}' });
+    expect(events).toEqual([
+      { t: "work.available" },
+      { t: "decision.answered", decisionId: "d", sessionId: null, instructionId: "x" },
+      { t: "thread.input", threadId: "thread-coo", inboxId: "i" },
+      { t: "session.interrupt", sessionId: "s" },
+    ]);
     made[0]!.ws.onclose?.({ code: 1006 });
     await new Promise((r) => setTimeout(r, 1100));
     expect(made).toHaveLength(2);
@@ -194,6 +213,9 @@ describe("登録スクリプトと launchd", () => {
     await expect(stat(r.plistPath)).rejects.toThrow();
     expect(r.plist).toContain("<string>/repo/runner/src/main.ts</string>");
     expect(r.plist).toContain(`<string>${dir}/.config/baton/runner.env</string>`);
+    // v2: claude（~/.local/bin）を PATH に、BATON_CLAUDE_BIN で本物の claude を指す
+    expect(r.plist).toContain(`<string>${dir}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>`);
+    expect(r.plist).toContain(`<key>BATON_CLAUDE_BIN</key><string>${dir}/.local/bin/claude</string>`);
     expect(r.plist).not.toMatch(/\{\{/);
     const r2 = await installAgent(["--home", dir, "--repo", "/repo"], { uid: () => 501, launchctl: (a) => void calls.push(a), out: () => {} });
     expect(calls).toEqual([

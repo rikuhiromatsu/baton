@@ -170,9 +170,9 @@ export class FakeBatonApi implements BatonApi {
     return this.inbox.filter((i) => i.threadId === threadId && !i.consumed);
   }
 
-  private addMessage(threadId: string, m: Omit<ThreadMessage, "id" | "threadId" | "seq" | "createdAt" | "updatedAt" | "reaction" | "clientId"> & { id?: string }): ThreadMessage {
+  private addMessage(threadId: string, m: Omit<ThreadMessage, "id" | "threadId" | "seq" | "createdAt" | "updatedAt" | "reaction" | "clientId" | "authorName"> & { id?: string }): ThreadMessage {
     const list = this.messages.get(threadId) ?? [];
-    const msg: ThreadMessage = { reaction: null, clientId: null, ...m, id: m.id ?? randomUUID(), threadId, seq: list.length + 1, createdAt: this.now(), updatedAt: this.now() };
+    const msg: ThreadMessage = { reaction: null, clientId: null, authorName: null, ...m, id: m.id ?? randomUUID(), threadId, seq: list.length + 1, createdAt: this.now(), updatedAt: this.now() };
     list.push(msg);
     this.messages.set(threadId, list);
     return msg;

@@ -12,7 +12,8 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>BATON_ENV_FILE</key><string>{{HOME}}/.config/baton/runner.env</string>
-    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>{{HOME}}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>BATON_CLAUDE_BIN</key><string>{{HOME}}/.local/bin/claude</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

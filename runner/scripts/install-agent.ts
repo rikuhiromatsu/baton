@@ -9,6 +9,9 @@ import path from "node:path";
 
 export const LABEL = "com.rikuhiromatsu.baton-runner";
 
+/** v2 のデータフォルダ（16.2 の 5） */
+export const DATA_DIRS = ["projects", "coo", "leaders", "worktrees", "logs", "run", "config"];
+
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -54,7 +57,7 @@ export async function installAgent(argv: string[], deps: InstallDeps = realDeps)
 
   if (dryRun) {
     deps.out("[dry-run] 何も書き込みません。実行すると次を行います:");
-    deps.out(`  1. mkdir -p ${logDir} ${path.join(home, "baton-data/projects")}`);
+    deps.out(`  1. mkdir -p ${logDir} ${DATA_DIRS.map((d) => path.join(home, "baton-data", d)).join(" ")}`);
     deps.out(`  2. ${plistPath} を書く`);
     deps.out(`  3. launchctl bootout ${domain}/${LABEL}（登録済みなら）`);
     deps.out(`  4. launchctl bootstrap ${domain} ${plistPath}`);
@@ -62,7 +65,7 @@ export async function installAgent(argv: string[], deps: InstallDeps = realDeps)
   }
 
   await mkdir(logDir, { recursive: true });
-  await mkdir(path.join(home, "baton-data/projects"), { recursive: true });
+  for (const d of DATA_DIRS) await mkdir(path.join(home, "baton-data", d), { recursive: true });
   await mkdir(path.dirname(plistPath), { recursive: true });
   await writeFile(plistPath, plist, { mode: 0o644 });
   deps.launchctl(["bootout", `${domain}/${LABEL}`], { allowFail: true });
