@@ -9,7 +9,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     tailwindcss(),
-    cloudflare(),
+    // e2e は専用の保存先を使い、毎回まっさらな D1 で始める（前回の使用量や指示に左右されないため）
+    cloudflare({ persistState: mode === "e2e" ? { path: ".wrangler/state-e2e" } : true }),
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: false,

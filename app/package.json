@@ -10,7 +10,7 @@
     "e2e:build": "CLOUDFLARE_ENV=e2e vite build --mode e2e",
     "e2e:serve": "npm run e2e:build && npm run db:migrate:e2e && vite preview --port 8790 --strictPort --mode e2e",
     "db:migrate:local": "wrangler d1 migrations apply baton --local",
-    "db:migrate:e2e": "wrangler d1 migrations apply baton-e2e --local --env e2e",
+    "db:migrate:e2e": "rm -rf .wrangler/state-e2e && wrangler d1 migrations apply baton-e2e --local --env e2e --persist-to .wrangler/state-e2e",
     "db:migrate:remote": "wrangler d1 migrations apply baton --remote",
     "test:worker": "vitest run -c vitest.worker.config.ts",
     "test:web": "vitest run -c vitest.web.config.ts",

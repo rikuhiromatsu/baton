@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import type { FullConfig } from "@playwright/test";
 import { BatonApi } from "./helpers/api.ts";
-import { AUTH_DIR, AUTH_FILE } from "./helpers/env.ts";
+import { AUTH_DIR, AUTH_FILE, BASE_URL } from "./helpers/env.ts";
 import { issueRunnerToken, loginAsCeo } from "./helpers/login.ts";
 import { initRunnerState, isRunnerRunning, runnerLogTail, startRunner, stopRunner } from "./helpers/runner.ts";
 import type { InstructionStatus } from "@baton/shared";
@@ -14,6 +14,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   // 前回の実行で残ったランナーがいれば止める（7778 番を空ける）
   await stopRunner();
+  await waitForServerReady();
 
   const ctx = await loginAsCeo();
   try {
@@ -30,6 +31,22 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   } finally {
     await ctx.dispose();
   }
+}
+
+/**
+ * webServer は URL が開いた時点で「起動した」とみなすが、CI の直後は vite preview から workerd への接続が
+ * まだ不安定で 500（fetch failed）を返すことがある。/api/health が 3 回続けて 200 になるまで待つ
+ */
+async function waitForServerReady(timeoutMs = 60_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let streak = 0;
+  while (Date.now() < deadline) {
+    const ok = await fetch(`${BASE_URL}/api/health`).then((r) => r.ok).catch(() => false);
+    streak = ok ? streak + 1 : 0;
+    if (streak >= 3) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("サーバーが 60 秒以内に安定して応答しませんでした（/api/health）");
 }
 
 /**

@@ -23,7 +23,13 @@ export class BatonApi {
   }
 
   async session(): Promise<SessionInfo> {
-    const res = await this.request.get(API_PATHS.session);
+    // CI の起動直後は、vite preview から workerd への接続が一瞬切れて 500（fetch failed）になることがある。
+    // GET は何度送っても同じなので、5xx のときだけ少し待って送り直す
+    let res = await this.request.get(API_PATHS.session);
+    for (let i = 0; i < 5 && res.status() >= 500; i++) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      res = await this.request.get(API_PATHS.session);
+    }
     await expectOk(res, "GET /api/session");
     const body = (await res.json()) as SessionInfo;
     this.csrfToken = body.csrfToken;
