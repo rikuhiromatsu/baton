@@ -384,9 +384,9 @@ SELECT 'v1-ceo-' || i.id, 'thread-coo', 2 * ROW_NUMBER() OVER (ORDER BY i.create
        i.body, i.id, 'complete', i.created_at, i.created_at
 FROM instructions i;
 INSERT INTO thread_messages (id, thread_id, seq, author_kind, author_agent_id, kind, body, instruction_id, status, created_at, updated_at)
-SELECT 'v1-coo-' || i.id, 'thread-coo', 2 * ROW_NUMBER() OVER (ORDER BY i.created_at, i.id), 'coo', 'agent-coo', 'report',
+SELECT 'v1-coo-' || i.id, 'thread-coo', 2 * i.n, 'coo', 'agent-coo', 'report',
        i.result_summary, i.id, 'complete', COALESCE(i.completed_at, i.updated_at), COALESCE(i.completed_at, i.updated_at)
-FROM instructions i
+FROM (SELECT x.*, ROW_NUMBER() OVER (ORDER BY x.created_at, x.id) AS n FROM instructions x) i  -- 番号は全指示で振ってから絞る（CEO の発言と同じ番号）
 WHERE i.result_summary IS NOT NULL;
 UPDATE threads SET last_seq = (SELECT COALESCE(MAX(seq), 0) FROM thread_messages m WHERE m.thread_id = 'thread-coo'),
                    last_message_at = (SELECT MAX(created_at) FROM thread_messages m WHERE m.thread_id = 'thread-coo')
