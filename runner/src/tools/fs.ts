@@ -214,23 +214,30 @@ export class FsTools {
       throw new ToolInputError(`1 つの指示で書ける量は合計 ${this.limits.fsWriteTotalBytesPerInstruction} バイトまでです`);
     }
 
-    // 親フォルダを作り、作ったあとにもう一度配下であることを確かめる
-    const parent = path.dirname(p.abs);
-    await mkdir(parent, { recursive: true });
-    await assertInside(p.rootReal, parent);
-
-    if (mode === "write" && p.exists && currentSize > 0) await this.backup(p.rootReal, p.abs, p.rel);
-
-    const flags =
-      constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | (mode === "append" ? constants.O_APPEND : constants.O_TRUNC);
-    const fh = await open(p.abs, flags, 0o644);
-    try {
-      await fh.writeFile(content, "utf8");
-    } finally {
-      await fh.close();
-    }
+    // 並列のメンバーが同じカウンタを使うので、await の前に枠を確保し、失敗したら戻す
     this.counters.paths.add(p.rel);
     this.counters.totalBytes += bytes;
+    try {
+      // 親フォルダを作り、作ったあとにもう一度配下であることを確かめる
+      const parent = path.dirname(p.abs);
+      await mkdir(parent, { recursive: true });
+      await assertInside(p.rootReal, parent);
+
+      if (mode === "write" && p.exists && currentSize > 0) await this.backup(p.rootReal, p.abs, p.rel);
+
+      const flags =
+        constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | (mode === "append" ? constants.O_APPEND : constants.O_TRUNC);
+      const fh = await open(p.abs, flags, 0o644);
+      try {
+        await fh.writeFile(content, "utf8");
+      } finally {
+        await fh.close();
+      }
+    } catch (err) {
+      if (isNewPath) this.counters.paths.delete(p.rel);
+      this.counters.totalBytes -= bytes;
+      throw err;
+    }
     const verb = mode === "append" ? "追記" : "書き込み";
     return { ok: true, text: `${p.rel} に ${bytes} バイト${verb}しました（ファイルは ${finalSize} バイト）`, short: `${p.rel} に ${bytes} バイト${verb}` };
   }

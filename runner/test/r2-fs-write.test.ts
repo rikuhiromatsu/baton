@@ -60,6 +60,16 @@ describe("R2 fs の道具", () => {
     await expect(fs2.fsWrite({ path: "4.txt", content: "a" })).rejects.toThrow(/2 個まで/);
   });
 
+  it("並列に書いても個数・合計の上限を超えない（枠を先に確保する）", async () => {
+    const counters = new WriteCounters();
+    const a = tools({ fsWritesPerInstruction: 3, fsWriteTotalBytesPerInstruction: 1000 }, counters);
+    const b = tools({ fsWritesPerInstruction: 3, fsWriteTotalBytesPerInstruction: 1000 }, counters);
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => (i % 2 ? a : b).fsWrite({ path: `p${i}.txt`, content: "x" })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(3);
+    expect(counters.paths.size).toBe(3);
+    expect(counters.totalBytes).toBe(3);
+  });
+
   it("1 指示あたりの合計の上限", async () => {
     const fs = tools({ fsWriteTotalBytesPerInstruction: 10 });
     await fs.fsWrite({ path: "1.txt", content: "12345" });

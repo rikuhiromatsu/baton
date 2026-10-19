@@ -91,6 +91,36 @@ describe("R6 再開", () => {
     expect(env.api.inst(id).status).toBe("review");
   });
 
+  it("revise の途中で落ちても、やり直しを飛ばさずラウンド 2 から続ける", async () => {
+    const { J, isStage, memberDone, memberWrite, hasToolResult, reviewReport } = await import("./fakes/fake-ai.ts");
+    const revise = J({ kind: "revise", reason: "足りない", tasks: [{ key: "t1", title: "追加", spec: "notes/t1.md", assignee: "調査担当", dependsOn: [] }] });
+    env = await makeEnv({
+      rules: [
+        { match: isStage("leader_review"), reply: revise },
+        { match: isStage("member_step", (i) => taskKeyOf(i) === "t1" && !hasToolResult(i)), reply: memberWrite("t1"), times: 2 },
+        { match: isStage("member_step", (i) => taskKeyOf(i) === "t1"), reply: memberDone("t1"), times: 2 },
+        { match: isStage("leader_review"), reply: reviewReport },
+        ...normalRules().filter((r) => r.name !== "review" && !r.name?.startsWith("t1")),
+      ],
+    });
+    const id = env.api.addInstruction("やり直しの途中で落ちる");
+    // ラウンド 2 の work を作った直後（まとめを done にする前）に落ちる
+    let creates = 0;
+    const orig = env.api.createTasks.bind(env.api);
+    env.api.createTasks = async (input, opts) => {
+      const out = await orig(input, opts);
+      if (input.tasks.some((t) => t.round === 2 && t.kind === "work") && creates++ === 0) throw new Error("落ちた");
+      return out;
+    };
+    expect((await env.claimAndRun()).outcome).toBe("failed");
+    // 失敗にした指示を CEO が再実行した想定で queued に戻す
+    const inst = env.api.inst(id);
+    inst.status = "queued";
+    expect((await env.claimAndRun()).outcome).toBe("review");
+    const round2 = env.api.tasksOf(id).filter((t) => t.round === 2);
+    expect(round2.map((t) => `${t.kind}:${t.status}`).sort()).toEqual(["plan:done", "review:done", "work:done"]);
+  });
+
   it("decideResume の分岐", async () => {
     env = await makeEnv();
     const { id } = await crashedState(env);

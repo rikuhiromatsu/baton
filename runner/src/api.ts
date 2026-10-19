@@ -85,6 +85,8 @@ export type HttpBatonApiOptions = {
   retryDelaysMs?: number[];
   /** AI 呼び出し 1 回のタイムアウト */
   aiTimeoutMs?: number;
+  /** AI 以外の API 1 回のタイムアウト（応答が来ない接続で claim やハートビートが止まらないように） */
+  requestTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -93,6 +95,7 @@ export class HttpBatonApi implements BatonApi {
   private readonly token: string;
   private readonly retryDelaysMs: number[];
   private readonly aiTimeoutMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(opts: HttpBatonApiOptions) {
@@ -100,10 +103,12 @@ export class HttpBatonApi implements BatonApi {
     this.token = opts.token;
     this.retryDelaysMs = opts.retryDelaysMs ?? [1000, 4000, 15000];
     this.aiTimeoutMs = opts.aiTimeoutMs ?? 120_000;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  private async once(method: string, path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; json: unknown }> {
+  private async once(method: string, path: string, body: unknown, parent?: AbortSignal, timeoutMs?: number): Promise<{ status: number; json: unknown }> {
+    const signal = timeoutMs ? (parent ? AbortSignal.any([parent, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)) : parent;
     let res: Response;
     let text: string;
     try {
@@ -119,7 +124,9 @@ export class HttpBatonApi implements BatonApi {
       });
       text = await res.text();
     } catch (err) {
-      if (signal?.aborted || isAbortError(err)) throw err;
+      if (parent?.aborted) throw parent.reason ?? err;
+      if (isAbortError(err) && !timeoutMs) throw err;
+      // 1 回分の時間切れ（応答が来ない接続）も届かなかった扱いにして再試行する
       throw new NetworkError(`Worker に届きません: ${(err as Error)?.message ?? String(err)}`);
     }
     let json: unknown = null;
@@ -134,11 +141,12 @@ export class HttpBatonApi implements BatonApi {
     return { status: res.status, json };
   }
 
-  private async request(method: string, path: string, body: unknown, opts: Opts & { retry?: boolean } = {}): Promise<{ status: number; json: unknown }> {
+  private async request(method: string, path: string, body: unknown, opts: Opts & { retry?: boolean; timeoutMs?: number | null } = {}): Promise<{ status: number; json: unknown }> {
+    const timeoutMs = opts.timeoutMs === null ? undefined : (opts.timeoutMs ?? this.requestTimeoutMs);
     const delays = opts.retry === false ? [] : this.retryDelaysMs;
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.once(method, path, body, opts.signal);
+        return await this.once(method, path, body, opts.signal, timeoutMs);
       } catch (err) {
         if (opts.signal?.aborted) throw opts.signal.reason;
         const delay = delays[attempt];
@@ -199,7 +207,7 @@ export class HttpBatonApi implements BatonApi {
   async aiChat(input: AiChatInput, opts?: Opts) {
     const timeout = AbortSignal.timeout(this.aiTimeoutMs);
     const signal = opts?.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
-    const r = await this.request("POST", API_PATHS.runnerAiChat, input, { signal, retry: false });
+    const r = await this.request("POST", API_PATHS.runnerAiChat, input, { signal, retry: false, timeoutMs: null });
     return AiChatOutput.parse(r.json);
   }
 }

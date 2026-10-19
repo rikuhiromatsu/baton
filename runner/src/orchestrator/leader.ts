@@ -231,8 +231,8 @@ export async function runReview(ctx: RunContext, round: number, reopen: boolean)
   }
 
   // revise: ラウンド +1 で同じ形（plan → work → review）をもう一度作る
+  // 次のラウンドの計画と work を先に作り、最後にまとめを done にする（途中で落ちても、再開時にラウンド 2 から続く）
   const next = round + 1;
-  await ctx.patchTask(reviewId, { status: "done", resultSummary: `やり直し: ${action.reason}`.slice(0, 4000) });
   const [plan2] = await ctx.createTasks([
     ctx.newTaskInput({ parentTaskId: null, assigneeAgentId: leader.id, kind: "plan", planKey: null, dependsOn: [], title: `計画（ラウンド ${next}）`, spec: `やり直しの理由: ${action.reason}`.slice(0, 2000), round: next }),
   ]);
@@ -241,5 +241,6 @@ export async function runReview(ctx: RunContext, round: number, reopen: boolean)
   const { tasks, assignees } = normalizePlan(fixed.tasks, members, { sequential: fixed.sequential });
   await createWorkTasks(ctx, plan2, tasks, assignees, next);
   await ctx.patchTask(plan2.id, { status: "done", resultSummary: planSummary(tasks, assignees) });
+  await ctx.patchTask(reviewId, { status: "done", resultSummary: `やり直し: ${action.reason}`.slice(0, 4000) });
   return { revised: true, round: next };
 }

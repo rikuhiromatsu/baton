@@ -41,7 +41,10 @@ describe("HttpBatonApi", () => {
   async function server(handler: http.RequestListener) {
     const s = http.createServer(handler);
     await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
-    cleanups.push(() => new Promise<void>((r) => s.close(() => r())));
+    cleanups.push(() => {
+      s.closeAllConnections();
+      return new Promise<void>((r) => s.close(() => r()));
+    });
     return `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
   }
 
@@ -67,6 +70,19 @@ describe("HttpBatonApi", () => {
     const before = n;
     await expect(api.release("00000000-0000-4000-8000-000000000000", { reason: "shutdown", notBefore: null })).rejects.toBeInstanceOf(ConflictError);
     expect(n - before).toBe(1);
+  });
+
+  it("応答が来ない接続は 1 回ごとの時間切れで再試行し、claim が止まったままにならない", async () => {
+    let n = 0;
+    const url = await server((_req, res) => {
+      n++;
+      if (n < 2) return; // 1 回目は返さない
+      res.writeHead(204);
+      res.end();
+    });
+    const api = new HttpBatonApi({ baseUrl: url, token: "t", retryDelaysMs: [0, 0], requestTimeoutMs: 100 });
+    expect(await api.claim({ maxConcurrent: 2, activeIds: [] })).toBeNull();
+    expect(n).toBe(2);
   });
 
   it("届かなければ NetworkError（再試行のあと）", async () => {
