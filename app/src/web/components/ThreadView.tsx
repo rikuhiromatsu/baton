@@ -163,7 +163,8 @@ export function ThreadView({ threadId, kind, projectId, header, bottomInset = 14
   }, [items]);
 
   // 最初に描いたときは一番下へ
-  const ready = q.data !== undefined;
+  // オフラインで前回のキャッシュも無いときは、取得が止まったまま（paused）なので空の会話として描く（送信待ちの発言は出す。13.5）
+  const ready = q.data !== undefined || q.isError || q.fetchStatus === "paused";
   useLayoutEffect(() => {
     if (!ready) return;
     atBottom.current = true;

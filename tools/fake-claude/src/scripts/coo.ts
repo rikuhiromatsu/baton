@@ -122,6 +122,15 @@ export function* cooScript(ctx: TurnContext): Script {
     }
   }
 
+  // CEO の再実行（右フリック。4.4）→ relay でリーダーにもう一度頼む
+  for (const n of linesOf(ctx, TURN_TAGS.notice)) {
+    if (!/再実行を求めた/.test(n)) continue;
+    const ref = resolveInstruction(ctx, n);
+    if (!ref) continue;
+    parts.push("CEO から再実行の依頼があったので、チームリーダーにもう一度頼みます。");
+    actions.push({ type: "relay", instructionId: ref.id, revision: ref.revision, message: "CEO から再実行の依頼です。もう一度進めてください。" });
+  }
+
   // CEO の発言
   const ceoLine = lastOf(ctx, TURN_TAGS.ceo);
   const secretary = lastOf(ctx, TURN_TAGS.secretary);

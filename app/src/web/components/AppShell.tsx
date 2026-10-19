@@ -40,6 +40,14 @@ export function AppShell() {
     void navigate({ to, replace: true });
   }, [isLogin, loggedIn, navigate]);
 
+  // オフラインで開いたとき: TanStack Query の onlineManager はオンラインのつもりで始まるので、取得はネットワークの失敗で終わり、
+  // つながっても取り直さない。つながったら失敗したもの（セッションを含む）を取り直す。セッションがそろえば下の処理で送信待ちを送る
+  useEffect(() => {
+    const onOnline = () => void qc.refetchQueries({ predicate: (q) => q.state.status === "error" });
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [qc]);
+
   // WebSocket（ログイン中だけ）と、画面が見えているか（見えている間は通知を送らない。10.2・D-88）
   useEffect(() => {
     if (!loggedIn) return;

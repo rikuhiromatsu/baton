@@ -115,14 +115,15 @@ export function MainLayout() {
   }, [pathname, route]);
 
   // 起動直後のスケルトン（index.html）を外す
-  // COO の会話は発言がそろうまで全画面スケルトンのまま（13.12。E3）。取得に失敗したら外して画面のエラー表示に任せる
+  // COO の会話は発言がそろうまで全画面スケルトンのまま（13.12。E3）。取得に失敗したとき・オフラインで止まったときは外す
   const cooMessages = useMessages(qc, route.kind === "coo" ? COO_THREAD_ID : null);
   const ready =
     route.kind === "settings" ||
     route.kind === "org" ||
     route.kind === "archive" ||
     threads.isError ||
-    (threads.data !== undefined && (route.kind !== "coo" || cooMessages.data !== undefined || cooMessages.isError));
+    threads.fetchStatus === "paused" ||
+    (threads.data !== undefined && (route.kind !== "coo" || cooMessages.data !== undefined || cooMessages.isError || cooMessages.fetchStatus === "paused"));
   useEffect(() => {
     if (ready) dismissBootSkeleton();
   }, [ready]);

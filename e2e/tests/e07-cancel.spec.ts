@@ -28,14 +28,15 @@ test("E7 処理中の指示を左フリックで取り消すと、メンバー�
     "メンバーのセッションが止まる",
     20_000,
   );
-  // 取消のあと、タスクもセッションもトランスクリプトも増えない
+  // 取消のあと、タスクもセッションも増えず、メンバーのトランスクリプトも伸びない。
+  // リーダーのスレッドのターンは止めない（5.7「スレッドは止めない」）ので、その発言の数は見ない
   await expectStable(
     async () => {
       const d = await api.detail(created.id);
       return {
         status: d.instruction.status,
         tasks: d.tasks.length,
-        sessions: d.sessions.map((s) => `${s.id}:${s.status}:${s.lastSeq}`).sort(),
+        sessions: d.sessions.map((s) => (s.role === "member" ? `${s.id}:${s.status}:${s.lastSeq}` : s.id)).sort(),
       };
     },
     6_000,

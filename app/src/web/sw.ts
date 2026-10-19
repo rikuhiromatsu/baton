@@ -44,7 +44,14 @@ sw.addEventListener("install", (e: ExtendableEvent) => {
   e.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      await cache.addAll(manifestUrls(manifest));
+      const urls = manifestUrls(manifest);
+      // /index.html は配信側で / へリダイレクトされる。リダイレクトを経た応答は画面の移動に返せないので、/ を取ってリダイレクトの印のない応答として入れる
+      await cache.addAll(urls.filter((u) => u !== "/index.html"));
+      if (urls.includes("/index.html")) {
+        const res = await fetch("/", { cache: "reload" });
+        if (!res.ok) throw new Error(`index.html: ${res.status}`);
+        await cache.put("/index.html", new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers }));
+      }
       await sw.skipWaiting();
     })(),
   );
@@ -68,7 +75,7 @@ sw.addEventListener("fetch", (e: FetchEvent) => {
         try {
           return await fetch(e.request);
         } catch {
-          const cached = await caches.match("/index.html", { cacheName: CACHE });
+          const cached = await caches.match("/index.html", { cacheName: CACHE, ignoreVary: true });
           return cached ?? Response.error();
         }
       })(),
@@ -77,7 +84,8 @@ sw.addEventListener("fetch", (e: FetchEvent) => {
   }
   e.respondWith(
     (async () => {
-      const cached = await caches.match(e.request, { cacheName: CACHE });
+      // 配信側が Vary: Origin を付けるので、Origin 付きのモジュールの読み込みが precache（Origin なし）に当たるよう Vary を見ない
+      const cached = await caches.match(e.request, { cacheName: CACHE, ignoreVary: true });
       return cached ?? fetch(e.request);
     })(),
   );
@@ -127,8 +135,8 @@ sw.addEventListener("message", (e: ExtendableEvent & { data: unknown }) => {
     (async () => {
       const open = await sw.registration.getNotifications();
       for (const n of notificationsToClose(open, msg.threadIds)) n.close();
-      if (msg.unread > 0) await nav.setAppBadge?.(msg.unread).catch(() => {});
-      else await nav.clearAppBadge?.().catch(() => {});
+      // バッジは開いている画面が未読数から付け直す（MainLayout の useUnreadTitle）。
+      // Service Worker の中から Badging API を呼ぶと、Chromium がオフラインから戻った直後に画面ごと落ちることがあった（E16）
     })(),
   );
 });

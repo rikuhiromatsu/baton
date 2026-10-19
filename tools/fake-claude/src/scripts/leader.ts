@@ -82,7 +82,11 @@ export function* leaderScript(ctx: TurnContext): Script {
     const pendingBrief = typeof ctx.session.flags.pendingBrief === "string" ? ctx.session.flags.pendingBrief : null;
     delete ctx.session.flags.pendingBrief;
     if (pendingBrief) for (const m of parseMarkers(pendingBrief, "leader")) ctx.markers.add(m);
-    const tasks = planTasks(ctx, (pendingBrief ?? brief).replace(/（指示 [0-9A-Za-z_-]+）$/, ""), pendingBrief);
+    // 同じ指示の 2 回目の依頼（再実行・差し戻しの relay）は、最初の依頼のマーカーを引き継ぐ
+    const earlierTag = typeof ctx.session.flags[`tag:${ref.id}`] === "string" ? (ctx.session.flags[`tag:${ref.id}`] as string) : null;
+    const tasks = planTasks(ctx, (pendingBrief ?? brief).replace(/（指示 [0-9A-Za-z_-]+）$/, ""), pendingBrief ?? earlierTag);
+    // ラウンド 2 のやり直しでも、もとの依頼のマーカーをメンバーに引き継ぐ
+    ctx.session.flags[`tag:${ref.id}`] = carried(ctx, pendingBrief ?? earlierTag);
     parts.push(scenarioA ? SCENARIO_A_LEADER.plan : `了解です。${tasks.map((t) => t.assignee).join("と")}で進めます`);
     actions.push({ type: "plan", instructionId: ref.id, newTitle: null, tasks });
   }
@@ -91,6 +95,22 @@ export function* leaderScript(ctx: TurnContext): Script {
   for (const results of linesOf(ctx, TURN_TAGS.memberResults)) {
     const ref = resolveInstruction(ctx, results);
     if (!ref) continue;
+    // 全部失敗したら 1 回だけやり直しを足す（ラウンド 2。5.5「全 work が失敗してもリーダーに渡す（リーダーが追加か report を決める）」）
+    const outcomes = [...results.matchAll(/^- \S+ .*?（([a-z_]+)）:/gm)].map((m) => m[1]);
+    const retryFlag = `retried:${ref.id}`;
+    if (outcomes.length > 0 && outcomes.every((o) => o !== "done") && ctx.session.flags[retryFlag] !== true) {
+      ctx.session.flags[retryFlag] = true;
+      const tag = typeof ctx.session.flags[`tag:${ref.id}`] === "string" ? (ctx.session.flags[`tag:${ref.id}`] as string) : carried(ctx);
+      const [a] = GENERIC_TEAM.members;
+      parts.push("うまくいかなかったので、もう一度やり直してもらいます");
+      actions.push({
+        type: "plan",
+        instructionId: ref.id,
+        newTitle: null,
+        tasks: [task(ctx, { title: "やり直し", spec: `前回の作業が失敗したのでやり直す。完了の条件: 成果を 1 つのファイルにまとめる。${tag}`, assignee: a!.name, dependsOn: [], paths: [] })],
+      });
+      continue;
+    }
     const niche = scenarioA && ctx.session.flags.niche === true;
     const summary = scenarioA
       ? niche

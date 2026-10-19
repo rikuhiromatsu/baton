@@ -84,7 +84,9 @@ export function parseClientMessage(data: unknown): { threadIds: string[]; unread
 export type ManifestEntry = string | { url: string; revision?: string | null };
 
 export function manifestUrls(entries: readonly ManifestEntry[]): string[] {
-  return entries.map((e) => (typeof e === "string" ? e : e.url)).map((u) => (u.startsWith("/") ? u : `/${u}`));
+  // 同じ URL が 2 回入ることがある（アイコンとマニフェストは includeManifestIcons と globPatterns の両方から来る）。
+  // cache.addAll は重複があると全体が失敗するので 1 回にする
+  return [...new Set(entries.map((e) => (typeof e === "string" ? e : e.url)).map((u) => (u.startsWith("/") ? u : `/${u}`)))];
 }
 
 /** キャッシュの名前（中身が変わったら新しい名前になる） */
