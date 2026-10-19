@@ -638,13 +638,23 @@ async function finishDone(
     await removeWorktree({ repo: ws.repoPath, dir: ws.worktreePath, worktreesRoot: dataPaths(ctx.config).worktrees }).catch((err: unknown) =>
       ctx.log.warn("タスク用 worktree を消せません", { dir: ws.worktreePath, error: errorMessage(err) }),
     );
+    // 衝突の解決タスクが統合できたら、元の衝突した作業場所も済みにする（7.4）
+    if (task?.spec.startsWith(CONFLICT_SPEC_PREFIX)) {
+      const branch = task.spec.slice(CONFLICT_SPEC_PREFIX.length).split("\n")[0]!.trim();
+      for (const w of run.workspaces.filter((x) => x.branch === branch && x.status === "conflict")) {
+        w.status = "merged";
+        await ctx.api.patchWorkspace(w.id, { status: "merged", error: null }).catch(() => undefined);
+        await removeWorktree({ repo: w.repoPath, dir: w.worktreePath, worktreesRoot: dataPaths(ctx.config).worktrees }).catch(() => undefined);
+      }
+    }
   } else {
     session.sink.add(runnerEventItem("衝突", { branch: ws.branch, files: merge.files }, merge.files.join(", ")));
+    ws.status = "conflict";
     await ctx.api.patchWorkspace(ws.id, { status: "conflict", error: clip(`衝突: ${merge.files.join(", ")}`, 4000) }).catch(() => undefined);
     const key = task?.planKey ?? task?.id ?? ws.branch;
     const st = await ctx.state.instruction(instruction.id);
     await ctx.state.patchInstruction(instruction.id, { conflicts: { ...(st.conflicts ?? {}), [key]: ws.branch } });
-    await ctx.api.pushInbox(leaderThreadIdOf(run.project.id), { kind: "merge_conflict", wakes: false, instructionId: instruction.id, payload: { taskKey: key, files: merge.files } });
+    await ctx.api.pushInbox(leaderThreadIdOf(run.project.id), { kind: "merge_conflict", wakes: true, instructionId: instruction.id, payload: { taskKey: key, files: merge.files } });
     summary = `${summary}\n（統合で衝突: ${merge.files.join(", ")}）`;
   }
   if (task && !input.followUpOnly) {
@@ -669,6 +679,8 @@ async function afterRound(run: Run): Promise<string> {
   const work = [...run.tasks.values()].filter((t) => t.kind === "work");
   if (work.some((t) => t.status === "pending" || t.status === "running")) return "partial";
   if (!run.worked) return "idle";
+  // 解決していない衝突があれば、リーダーの resolve_conflict を待つ（member_results はまだ出さない）
+  if (run.workspaces.some((w) => w.purpose === "task" && w.status === "conflict")) return "conflict_pending";
   const round = Math.max(1, ...work.map((t) => t.round));
   const latest = work.filter((t) => t.round === round);
   const anyDone = work.some((t) => t.status === "done");

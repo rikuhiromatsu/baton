@@ -88,6 +88,7 @@ export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger
   const { prepareDataDir } = await import("../src/startup.ts");
   await prepareDataDir(ctx);
   const step = async (signal: AbortSignal = new AbortController().signal) => {
+    const ctx = self.ctx;
     const claim = await api.claim({
       kinds: ["thread", "instruction", "finalize"],
       activeThreadIds: [],
@@ -112,7 +113,7 @@ export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger
     }
     return out;
   };
-  return {
+  const self: Env = {
     dir,
     home,
     dataDir,
@@ -120,12 +121,13 @@ export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger
     api,
     ctx,
     cleanup: async () => {
-      await ctx.threads.closeAll();
+      await self.ctx.threads.closeAll();
       await cleanup();
     },
     step,
     drain,
   };
+  return self;
 }
 
 export function git(cwd: string, ...args: string[]): string {

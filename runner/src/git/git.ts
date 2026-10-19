@@ -142,7 +142,11 @@ export async function addWorktree(input: { repo: string; dir: string; branch: st
   await withRepoLock(input.repo, () =>
     retryOnLock(async () => {
       if (existsSync(input.dir) && (await isGitRepo(input.dir))) return;
-      if (await branchExists(input.repo, input.branch)) await runGit(["-C", input.repo, ...NO_HOOKS, "worktree", "add", input.dir, input.branch]);
+      if (await branchExists(input.repo, input.branch)) {
+        // 作り直し: 管理フォルダが残っている（フォルダだけ消えた・ロック中）なら外してから。-f は「登録済みで見つからない」だけを上書きする
+        await runGit(["-C", input.repo, "worktree", "unlock", input.dir], { allowFail: true });
+        await runGit(["-C", input.repo, ...NO_HOOKS, "worktree", "add", "-f", input.dir, input.branch]);
+      }
       else await runGit(["-C", input.repo, ...NO_HOOKS, "worktree", "add", "-b", input.branch, input.dir, input.startSha]);
       await runGit(["-C", input.repo, "worktree", "lock", "--reason", input.reason, input.dir], { allowFail: true });
     }, input.lockDelays),
@@ -293,7 +297,8 @@ export async function cleanStaleWorktreeLocks(repo: string, worktreesRoot: strin
   const commonDir = (await runGit(["-C", repo, "rev-parse", "--git-common-dir"], { allowFail: true })).stdout.trim();
   if (!commonDir) return [];
   const common = path.resolve(repo, commonDir);
-  const gitRunning = (await new Promise<boolean>((resolve) => execFile("pgrep", ["-x", "git"], (err) => resolve(!err))));
+  // その本体で git が動いていれば何もしない（ランナーの git は -C <本体> で呼ぶ。他のリポジトリの git は数えない）
+  const gitRunning = await new Promise<boolean>((resolve) => execFile("pgrep", ["-f", `git .*${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`], (err) => resolve(!err)));
   if (gitRunning) return [];
   const removed: string[] = [];
   const root = await realpath(worktreesRoot).catch(() => path.resolve(worktreesRoot));
