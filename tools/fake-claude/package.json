@@ -1,0 +1,19 @@
+{
+  "name": "@baton/fake-claude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "テスト用の偽 claude（DESIGN-v2 15.2）。本物の stream-json と同じ形を台本どおりに出す。中身は V5 が作る",
+  "type": "module",
+  "bin": { "claude": "bin/claude" },
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@baton/shared": "*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.5"
+  }
+}

@@ -20,6 +20,9 @@ ALTER TABLE projects ADD COLUMN goal TEXT NOT NULL DEFAULT '';
 -- エージェントの職種プロファイル（runner/profiles/profiles.json のキー。DESIGN-v2 6 章）。NULL なら役割の既定（coo / leader / generalist）
 ALTER TABLE agents ADD COLUMN profile TEXT;
 
+-- メンバーのタスクが触ってよい範囲（リーダーの plan の paths。DESIGN-v2 4.6・7.3。D-96）
+ALTER TABLE tasks ADD COLUMN paths TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(paths));
+
 -- ランナーが ~/projects を走査して見つけた git リポジトリの候補（画面の「リポジトリを紐づける」の選択肢）
 CREATE TABLE runner_repos (
   path           TEXT PRIMARY KEY,             -- 絶対パス（realpath 済み、~/projects 配下）

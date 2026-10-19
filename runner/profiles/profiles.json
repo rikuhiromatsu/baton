@@ -1,0 +1,63 @@
+{
+  "ceoStyle": {
+    "source": "~/.claude/CLAUDE.md",
+    "includeSections": [
+      "返答の言語"
+    ],
+    "extra": "CEO（本人）は日本語で話す。です・ます調で、短く、結論から。専門用語は言い換える。"
+  },
+  "profiles": {
+    "coo": {
+      "role": "coo",
+      "model": "opus",
+      "skills": [],
+      "mcp": []
+    },
+    "leader": {
+      "role": "leader",
+      "model": "sonnet",
+      "skills": [],
+      "mcp": []
+    },
+    "engineer": {
+      "role": "member",
+      "model": "sonnet",
+      "skills": [],
+      "mcp": [],
+      "codexReview": true
+    },
+    "researcher": {
+      "role": "member",
+      "model": "sonnet",
+      "skills": [
+        "sns-url-research",
+        "prior-art-search"
+      ],
+      "mcp": []
+    },
+    "writer": {
+      "role": "member",
+      "model": "sonnet",
+      "skills": [],
+      "mcp": []
+    },
+    "generalist": {
+      "role": "member",
+      "model": "sonnet",
+      "skills": [],
+      "mcp": []
+    }
+  },
+  "neverSkills": [
+    "linear-task",
+    "daily-record",
+    "inbox-triage",
+    "inbox-triage-workspace",
+    "file-triage",
+    "casematch-daily-report",
+    "slack-text",
+    "user-dict",
+    "pm-dev-team",
+    "synced"
+  ]
+}

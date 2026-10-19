@@ -16,7 +16,8 @@
     "test:web": "vitest run -c vitest.web.config.ts",
     "deploy": "wrangler deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings src/worker/worker-configuration.d.ts",
-    "ai:probe": "node scripts/ai-probe.mjs"
+    "push:keys": "node scripts/push-keys.mjs",
+    "bot:token": "node scripts/bot-token.mjs"
   },
   "dependencies": {
     "@baton/shared": "*",
@@ -25,11 +26,14 @@
     "@tanstack/react-query": "^5.104.4",
     "@tanstack/react-query-persist-client": "^5.104.4",
     "@tanstack/react-router": "^1.170.45",
+    "@tanstack/react-virtual": "3.14.21",
     "arctic": "^3.7.0",
     "hono": "^4.13.13",
     "motion": "^14.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "zod": "^4.6.7",
     "zustand": "^5.0.15"
   },
