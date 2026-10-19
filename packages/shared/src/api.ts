@@ -194,6 +194,11 @@ export const RunnerInstructionState = z.object({
   routed: z.boolean(),
   /** 次に使うイベントの seq */
   nextEventSeq: z.int().min(0),
+  /**
+   * 段階 1（COO の振り分け）に渡すアクティブなプロジェクト一覧（チーム込み）。
+   * 追加のみの変更。Worker が入れない間はランナーが空の一覧として扱う
+   */
+  activeProjects: z.array(ProjectWithTeamSchema).optional(),
   /** 作業フォルダのファイル数など、ランナーが自分で持つものは含めない */
 });
 export type RunnerInstructionState = z.infer<typeof RunnerInstructionState>;
