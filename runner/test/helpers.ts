@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { JevClient } from "../src/claude/jev.ts";
 import { loadConfig, type RunnerConfig } from "../src/config.ts";
 import type { RunnerContext } from "../src/context.ts";
 import { silentLogger, type Logger } from "../src/log.ts";
@@ -66,7 +67,7 @@ export type Env = {
   drain: (max?: number) => Promise<{ kind: string; outcome: string }[]>;
 };
 
-export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger; fakeEnv?: Record<string, string> } = {}): Promise<Env> {
+export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger; fakeEnv?: Record<string, string>; jev?: JevClient } = {}): Promise<Env> {
   const { dir, cleanup } = await tempDir();
   const home = await makeHome(dir);
   const dataDir = path.join(dir, "baton-data");
@@ -84,7 +85,7 @@ export async function makeEnv(opts: { env?: Record<string, string>; log?: Logger
     ...opts.env,
   });
   const api = new FakeBatonApi();
-  const ctx = createContext({ config, log: opts.log ?? silentLogger, api });
+  const ctx = createContext({ config, log: opts.log ?? silentLogger, api, jev: opts.jev });
   const { prepareDataDir } = await import("../src/startup.ts");
   await prepareDataDir(ctx);
   const step = async (signal: AbortSignal = new AbortController().signal) => {

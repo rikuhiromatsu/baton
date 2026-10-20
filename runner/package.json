@@ -8,6 +8,7 @@
     "dev": "node --watch src/main.ts",
     "register": "node scripts/register.ts",
     "install-agent": "node scripts/install-agent.ts",
+    "jev:probe": "node scripts/jev-probe.ts",
     "test": "vitest run"
   },
   "dependencies": {

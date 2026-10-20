@@ -1,6 +1,7 @@
 // ランナー全体で共有する部品（API・設定・ログ・枠・プロファイル・認証の守り・承認の待ち合わせ・プロセスの空き）。
 import type { Decision, Workspace } from "@baton/shared";
 import type { BatonApi } from "./api.ts";
+import type { JevClient } from "./claude/jev.ts";
 import type { ResolvedProfiles } from "./claude/profiles.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { LiveLog, Logger } from "./log.ts";
@@ -72,6 +73,8 @@ export type RunnerContext = {
   /** 起動のたびに読み直す（本人が profiles.local.json を直せば次の起動から効く） */
   profiles: () => Promise<ResolvedProfiles>;
   state: StateStore;
+  /** メンバーのモデルとエフォートを決める Jev（5.9.1）。テストは偽の Jev を入れる */
+  jev: JevClient;
   coord: Coordination;
   threads: ThreadPool;
   memberSlots: Semaphore;

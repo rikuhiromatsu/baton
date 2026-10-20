@@ -21,6 +21,10 @@ const ProfileSchema = z.object({
   codexReview: z.boolean().optional(),
   /** スキルが通信を要るとき（6.2） */
   extraDomains: z.array(z.string()).optional(),
+  /** 振り分けの基準のエフォート。無ければ --effort を付けない（5.9.1・D-130） */
+  effort: z.enum(["low", "medium", "high", "xhigh"]).optional(),
+  /** Jev の振り分けの下限・上限（メンバーの職種だけ。無ければ振り分けない。5.9.1・D-131） */
+  jev: z.object({ min: z.enum(["haiku", "sonnet", "opus"]), max: z.enum(["haiku", "sonnet", "opus"]) }).optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 

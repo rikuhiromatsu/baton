@@ -22,6 +22,7 @@ const base: LaunchSpec = {
   cwd: "/data/worktrees/abcd1234/demo/t1-r1",
   addDirs: [],
   model: "sonnet",
+  effort: null,
   fallbackModel: null,
   maxTurns: 80,
   maxBudgetUsd: 6,

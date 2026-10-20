@@ -28,6 +28,8 @@ export type SessionOptions = {
   cwd: string;
   addDirs: string[];
   model: string;
+  /** --effort（null は付けない。メンバーの Jev の振り分けだけが使う。5.9.1） */
+  effort?: string | null;
   fallbackModel: string | null;
   profileId: string;
   profile: Profile;
@@ -145,6 +147,7 @@ export class AgentSession {
       cwd: o.cwd,
       addDirs: o.addDirs,
       model: o.model,
+      effort: o.effort ?? null,
       fallbackModel: o.fallbackModel,
       maxTurns: config.limits.maxTurns[o.role],
       maxBudgetUsd: config.limits.maxBudgetUsd[o.role],
@@ -169,7 +172,7 @@ export class AgentSession {
     });
     this.proc.on((r) => this.onStream(r));
     this.proc.start();
-    this.ctx.log.info("claude を起動しました", { role: o.role, sessionId: o.sessionId, resume: o.resume, cwd: o.cwd, model: o.model, pid: this.proc.pid });
+    this.ctx.log.info("claude を起動しました", { role: o.role, sessionId: o.sessionId, resume: o.resume, cwd: o.cwd, model: o.model, effort: o.effort ?? null, pid: this.proc.pid });
   }
 
   private onStream(r: NormalizeResult): void {

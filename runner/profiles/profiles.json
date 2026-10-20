@@ -24,7 +24,11 @@
       "model": "sonnet",
       "skills": [],
       "mcp": [],
-      "codexReview": true
+      "codexReview": true,
+      "jev": {
+        "min": "sonnet",
+        "max": "opus"
+      }
     },
     "researcher": {
       "role": "member",
@@ -33,19 +37,31 @@
         "sns-url-research",
         "prior-art-search"
       ],
-      "mcp": []
+      "mcp": [],
+      "jev": {
+        "min": "haiku",
+        "max": "opus"
+      }
     },
     "writer": {
       "role": "member",
       "model": "sonnet",
       "skills": [],
-      "mcp": []
+      "mcp": [],
+      "jev": {
+        "min": "sonnet",
+        "max": "opus"
+      }
     },
     "generalist": {
       "role": "member",
       "model": "sonnet",
       "skills": [],
-      "mcp": []
+      "mcp": [],
+      "jev": {
+        "min": "haiku",
+        "max": "opus"
+      }
     }
   },
   "neverSkills": [

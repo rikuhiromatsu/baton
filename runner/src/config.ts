@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { LIMITS } from "@baton/shared";
+import { DEFAULT_BASE_URL, DEFAULT_MIN_DOWNGRADE, DEFAULT_MIN_UPGRADE, DEFAULT_MODEL, DEFAULT_UPGRADE_QUOTA } from "./claude/jev-policy.ts";
 
 export const RUNNER_VERSION = "0.2.0";
 
@@ -112,7 +113,56 @@ export type RunnerConfig = {
   selfRepo: string;
   /** トランスクリプトの tool_result を要約だけにする（BATON_TRANSCRIPT_LEVEL=summary） */
   transcriptSummaryOnly: boolean;
+  /** メンバーのモデルとエフォートの振り分け（Jev。5.9.1） */
+  jev: JevConfig;
 };
+
+export type JevRouting = "off" | "shadow" | "on";
+
+export type JevConfig = {
+  /** off（既定）: 呼ばない / shadow: 呼んで記録だけ / on: 結果で起動する（BATON_JEV_ROUTING） */
+  routing: JevRouting;
+  /** BATON_TYPESAFE_BASE_URL */
+  baseUrl: string;
+  /** BATON_TYPESAFE_MODEL */
+  model: string;
+  /** BATON_JEV_TIMEOUT_MS */
+  timeoutMs: number;
+  /** BATON_JEV_MIN_UPGRADE・BATON_JEV_MIN_DOWNGRADE */
+  minUpgradeConfidence: number;
+  minDowngradeConfidence: number;
+  /** BATON_JEV_UPGRADE_QUOTA（「5 時間枠,週の枠」） */
+  upgradeQuota: { fiveHour: number; sevenDay: number };
+  /** BATON_TYPESAFE_API_KEY（ログ・D1・子には出さない。無ければ null） */
+  apiKey: string | null;
+};
+
+function ratio(name: string, v: string | undefined, fallback: number): number {
+  if (v === undefined || v === "") return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error(`${name} は 0〜1 の数値にしてください`);
+  return n;
+}
+
+function jevConfig(env: Record<string, string | undefined>): JevConfig {
+  const routing = (env.BATON_JEV_ROUTING || "off").trim();
+  if (routing !== "off" && routing !== "shadow" && routing !== "on") throw new Error("BATON_JEV_ROUTING は off / shadow / on のどれかにしてください");
+  const quota = list(env.BATON_JEV_UPGRADE_QUOTA);
+  if (env.BATON_JEV_UPGRADE_QUOTA && quota.length !== 2) throw new Error("BATON_JEV_UPGRADE_QUOTA は「0.6,0.75」の形にしてください");
+  return {
+    routing,
+    baseUrl: (env.BATON_TYPESAFE_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    model: env.BATON_TYPESAFE_MODEL || DEFAULT_MODEL,
+    timeoutMs: env.BATON_JEV_TIMEOUT_MS ? num("BATON_JEV_TIMEOUT_MS", env.BATON_JEV_TIMEOUT_MS) : 1500,
+    minUpgradeConfidence: ratio("BATON_JEV_MIN_UPGRADE", env.BATON_JEV_MIN_UPGRADE, DEFAULT_MIN_UPGRADE),
+    minDowngradeConfidence: ratio("BATON_JEV_MIN_DOWNGRADE", env.BATON_JEV_MIN_DOWNGRADE, DEFAULT_MIN_DOWNGRADE),
+    upgradeQuota: {
+      fiveHour: ratio("BATON_JEV_UPGRADE_QUOTA", quota[0], DEFAULT_UPGRADE_QUOTA.fiveHour),
+      sevenDay: ratio("BATON_JEV_UPGRADE_QUOTA", quota[1], DEFAULT_UPGRADE_QUOTA.sevenDay),
+    },
+    apiKey: env.BATON_TYPESAFE_API_KEY?.trim() || null,
+  };
+}
 
 /** KEY=VALUE の行を読む。# で始まる行と空行は無視。値の前後の引用符は外す */
 export function parseEnvFile(text: string): Record<string, string> {
@@ -244,6 +294,7 @@ export function loadConfig(processEnv: Record<string, string | undefined> = proc
     projectsScanRoot: path.resolve(expandHome(env.BATON_PROJECTS_ROOT || "~/projects", home)),
     selfRepo: repoRoot,
     transcriptSummaryOnly: env.BATON_TRANSCRIPT_LEVEL === "summary",
+    jev: jevConfig(env),
   };
 }
 

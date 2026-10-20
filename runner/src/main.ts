@@ -2,6 +2,7 @@
 // 設定は BATON_ENV_FILE の env ファイルと環境変数（環境変数が優先）。SIGTERM/SIGINT で全プロセスに interrupt → lease を外す → 5 秒で終了。
 import type http from "node:http";
 import { HttpBatonApi, type BatonApi } from "./api.ts";
+import { HttpJevClient, type JevClient } from "./claude/jev.ts";
 import { loadProfiles, type ResolvedProfiles } from "./claude/profiles.ts";
 import { loadConfig, type RunnerConfig } from "./config.ts";
 import { AuthGuard, Coordination, DecisionWaiters, type RunnerContext } from "./context.ts";
@@ -28,7 +29,7 @@ export type RunnerHandle = {
   stop(deadlineMs?: number): Promise<void>;
 };
 
-export function createContext(opts: { config: RunnerConfig; log?: Logger; api?: BatonApi; now?: () => number }): RunnerContext {
+export function createContext(opts: { config: RunnerConfig; log?: Logger; api?: BatonApi; now?: () => number; jev?: JevClient }): RunnerContext {
   const { config } = opts;
   const log = opts.log ?? createLogger();
   const api = opts.api ?? new HttpBatonApi({ baseUrl: config.batonUrl, token: config.token, retryDelaysMs: config.apiRetryDelaysMs });
@@ -50,6 +51,9 @@ export function createContext(opts: { config: RunnerConfig; log?: Logger; api?: 
       return value;
     },
     state: new StateStore(config),
+    jev:
+      opts.jev ??
+      new HttpJevClient({ baseUrl: config.jev.baseUrl, model: config.jev.model, timeoutMs: config.jev.timeoutMs, envKey: config.jev.apiKey, home: config.home }),
     coord: new Coordination(),
     threads: new ThreadPool(config.limits.threadProcesses, config.limits.threadIdleMs),
     memberSlots: new Semaphore(config.limits.memberProcesses),
@@ -77,6 +81,7 @@ export async function startRunner(opts: {
   hooks?: SchedulerHooks;
   skipAuthCheck?: boolean;
   skipRepoScan?: boolean;
+  jev?: JevClient;
 }): Promise<RunnerHandle> {
   const ctx = createContext(opts);
   const { config, log } = ctx;
@@ -107,6 +112,7 @@ export async function startRunner(opts: {
       claudeVersion: ctx.auth.claudeVersion,
       quota: ctx.quota.current,
       authStop: ctx.auth.tripped,
+      jev: { mode: config.jev.routing, ...ctx.jev.status() },
     }),
   });
   const localPort = await listenLocal(server, config.localPort);

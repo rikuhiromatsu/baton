@@ -28,6 +28,8 @@ export type LocalStatus = {
   claudeVersion: string | null;
   quota: unknown;
   authStop: string | null;
+  /** Jev の振り分けの状態（5.9.1）。鍵そのものは出さず、出どころだけ */
+  jev?: { mode: string; keySource: string; lastAt: number | null; lastError: string | null };
 };
 
 export type LocalServerDeps = {

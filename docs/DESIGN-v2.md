@@ -535,9 +535,132 @@ export const MemberOutput = z.discriminatedUnion("kind", [
 | ターンの失敗（スキーマ違反・`error_*`） | 1 回だけやり直す（「直前の出力がスキーマに合わなかった」を添える）。2 回目も失敗したら `notice`「うまく返事ができませんでした」、受信箱は消化済み |
 | 消すもの | v1 の `ai*`・`tokens*`・`memberTurns`・`maxCompletionTokens`・`memberRecent*`・`fs*`・`webFetch*` |
 
-### 5.9 モデル（D-61）
+### 5.9 モデル（D-61・D-127・D-128）
 
-COO `--model opus --fallback-model sonnet`、リーダー・メンバー `--model sonnet`。`BATON_MODEL_*` かプロファイルの `model`、`agents.model` で上書き。
+決め方の順番（`orchestrator/common.ts` の `modelFor`）: **`BATON_MODEL_<ROLE>`（`runner.env`）＞ プロファイルの `model`**。`agents.model` の列は今のコードでは読んでいない（使わない。v1 の名残）。
+
+| 役割 | コードの既定（`profiles.json`） | 本番（Mac mini の `~/.config/baton/runner.env`） | 退避（`--fallback-model`） |
+|---|---|---|---|
+| COO | `opus` | 同じ | `sonnet` |
+| リーダー | `sonnet` | **`BATON_MODEL_LEADER=opus`**（2026-10-20 から。D-127） | モデルが `sonnet` 以外なら `sonnet`（D-127。COO と同じ扱いにする） |
+| メンバー | 職種のプロファイルの `model`（既定は全職種 `sonnet`） | `BATON_JEV_ROUTING=on` で **新しいセッションの起動時に Jev で決める**（5.9.1） | なし |
+
+- `BATON_MODEL_MEMBER` を置くと、メンバーはそのモデルに固定し、Jev の振り分けもしない（D-135。V3・V6 の確認で `haiku` に固定するため）。
+- エフォート（`--effort`）は、COO・リーダーには付けない（Claude Code の既定）。メンバーは 5.9.1 のとおり。
+
+### 5.9.1 メンバーのモデルとエフォートの振り分け（Jev。D-128〜D-137）
+
+**何をするか**: ランナーがメンバーの **新しいセッション** を起動する直前に、TypeSafe の System One API（判定モデル Jev）に 1 回だけ問い合わせ、そのセッションの `--model` と `--effort` を決める。起動したあとは変えない（プロンプトキャッシュを壊さない）。COO・リーダーのセッションは対象外（固定）。
+
+本人の Claude Code の mod `jev-model-router`（claude-code-templates 製、MIT。`~/claude-config/skills/jev-model-router/`）は、Baton のメンバーにはそのままでは効かない。Baton は `--setting-sources "" --strict-mcp-config` で起動するので `pluginConfigs` も `~/.claude/skills` の mod も読まれず（D-47）、子の環境に鍵は無く（D-48）、サンドボックスが `~/.claude` の読み取りを拒否する（D-118）。だから **mod の問いと判定のロジックを Baton のランナーに写し、ランナー（サンドボックスの外の親プロセス）が起動前に呼ぶ**（D-128・D-129）。
+
+**いつ呼ぶか**
+
+| 場面 | 振り分け | 理由 |
+|---|---|---|
+| work タスクの最初の起動（`runTaskUnit`、ラウンド 1・2） | **呼ぶ** | 新しいセッション |
+| 衝突の解決のタスク（`spec` が `CONFLICT_SPEC_PREFIX` で始まる） | **呼ぶ**（`conflictResolution: true`。下限は `sonnet`） | 新しいセッション。マージの作業は小さく見えても難しい |
+| `--resume`（`ask_leader` の答え、承認の回答、中断からの再開、`quota_wait` からの復帰、ランナーの再起動、追加の依頼） | **呼ばない**。前回と同じモデル・エフォート（D-133） | 同じ会話の続き。モデルを変えるとキャッシュが無駄になり、文脈の引き継ぎも崩れる |
+| `--resume` できず新しいセッションで引き継ぐ（`triedFresh`。7.5） | **呼ばない**。前のセッションと同じモデル・エフォート | 同じタスクの続き。前任の作業量を Jev は知らない |
+| ターンの失敗のやり直し（5.8。同じプロセスに頼み直す） | 関係なし（同じプロセス） | — |
+| COO・リーダーのターン | **呼ばない** | 5.9 の固定 |
+
+**Jev に渡す `state`**（`buildJevState()`。秘密やファイルの中身は渡さない。D-137）
+
+```ts
+type JevMemberState = {
+  kind: "baton_member_task";        // Jev への手がかり（Baton のメンバーが 1 つの作業を最後までやる）
+  title: string;                    // タスクの件名（80 文字まで）
+  spec: string;                     // 完了の条件を含む指示文（先頭 4,000 文字。伏せ字を通す）
+  paths: string[];                  // 触ってよい範囲（相対パス、20 件まで）
+  profile: string;                  // 職種（engineer / researcher / writer / generalist）
+  profileNote: string;              // 職種の 1 行の説明（固定文。例: 「コードを書き、テストを回す」）
+  workspace: "repo" | "baton";      // 既存リポジトリか Baton 専用か（パスは渡さない）
+  round: 1 | 2;                     // ラウンド（2 は追加のタスク）
+  conflictResolution: boolean;      // 衝突の解決か
+  dependsOn: number;                // 依存タスクの数（結果の本文は渡さない）
+  limits: { maxTurns: number };     // メンバーの --max-turns（80）。作業の大きさの目安
+};
+```
+
+- **渡さないもの**: プロジェクトの目的（`goal`）・リポジトリのパス・依存タスクの結果の本文・`CLAUDE.md`・ファイルの中身・CEO の会話・エージェント名。
+- **伏せ字**（`redactSecrets()`）: `spec`・`title` の中の鍵らしい文字列（`sk-…`・`btn_bot_…`・`ghp_…`・`github_pat_…`・`xox[abp]-…`・`AKIA…`・`-----BEGIN … KEY-----` から `-----END`、40 文字以上の英数字・`+/=_-` の連続）を `[伏せ字]` に置き換える。
+- TypeSafe は入力トークンだけ課金。1 回あたり 1〜2 千トークン（`spec` を 4,000 文字で切るのはこのため）。
+
+**問いとしきい値**: 本人の mod の `hooks/policy.ts`（`questions()`・`readDecision()`・`effortLevel()`・`rankOf()`・`route()`）を **そのまま写す**（`runner/src/claude/jev-policy.ts`。ファイルの先頭に出どころ（`claude-code-templates` の `mods/productivity/jev-model-router/hooks/policy.ts`、MIT、写した日）と、変えた所を書く。D-129）。変えるのは次だけ:
+
+- 使うのは `typesafe` の形だけ（Gateway・内蔵の分類は写さない。鍵が無ければ振り分けない）。
+- `ALIAS_IDS`・`requestModelId()` は写さない（`--model` は別名 `haiku`・`sonnet`・`opus` をそのまま受ける）。
+- `route()` の **あと** に Baton の上限（下の表）を当てる `clampRouting()` を足す。
+
+| 問い（mod のまま） | 型 | 中身 |
+|---|---|---|
+| `tier` | `choice`（`fast` / `balanced` / `deep`） | 「この作業をうまく終えられる一番安い段はどれか」。段の説明は作業の形（機械的・局所的 / 普通の開発 / 難しい・影響が大きい）で、モデル名は見せない |
+| `effort` | `score`（4 段: almost none / some / a lot / as much as possible） | 段階的な推論がどれだけ要るか → `low` / `medium` / `high` / `xhigh` |
+| `risky` | `noul` | この作業を実行すること自体が本番を変える・お金を動かす・戻せないデータを変えるか |
+
+| しきい値（mod の既定のまま。`BATON_JEV_*` で変えられる） | 値 |
+|---|---|
+| 上げる（大きいモデル・多い推論）のに要る確信度 `minUpgradeConfidence` | 0.3 |
+| 下げるのに要る確信度 `minDowngradeConfidence` | 0.6 |
+| `risky` がこれを超えたら `deep` と `high` 以上を強制（しきい値を飛ばす） | 0.7 |
+| 段とモデル（`fast` / `balanced` / `deep`） | `haiku` / `sonnet` / `opus` |
+| 1 回の問い合わせの時間切れ `BATON_JEV_TIMEOUT_MS` | 1,500ms（本人の mod の設定と同じ） |
+
+**基準（「今のモデル・エフォート」。D-130）**: `route()` に渡す `current` は、職種のプロファイルの `model`（既定 `sonnet`）と、プロファイルの `effort`（新しい任意の欄）。`effort` が無い職種は **`--effort` を付けない（Claude Code の既定）** を基準にし、`route()` の比較では `medium` とみなす（`ASSUMED_DEFAULT_EFFORT`。Claude Code の既定のエフォートは `init` に出ず確かめられないため、1 か所の定数にしておく）。振り分けの結果が基準と同じなら `--effort` を付けない（今の起動とまったく同じ引数になる）。
+
+**Baton の上限**（`clampRouting()`。`route()` の答えをこの範囲に収める。`risky` の強制もこれを越えない。D-131）
+
+| 上限 | 値 | 理由 |
+|---|---|---|
+| 職種ごとのモデルの下限・上限（プロファイルの `jev: { min, max }`） | `engineer` sonnet〜opus、`writer` sonnet〜opus、`researcher` haiku〜opus、`generalist` haiku〜opus。`jev` の無いプロファイル（`coo`・`leader`）は振り分けない | メンバーは 1 タスクを最大 80 ターンかけてやり切る。コードと CEO に見せる文章は haiku に下げない |
+| 衝突の解決 | 下限 `sonnet` | マージの判断 |
+| エフォートの上限 | `xhigh` は最終のモデルが `opus` のときだけ（ほかは `high` まで）。`max` は使わない（mod の `EFFORT_ORDER` も `xhigh` まで） | 枠 |
+| 枠が近いとき（`ctx.quota.current` の 5 時間枠 ≥ 0.60 か 週の枠 ≥ 0.75。`BATON_JEV_UPGRADE_QUOTA=0.6,0.75`） | **基準より上げない**（モデルもエフォートも）。下げるのは通す | 9.2 の 80%/90% で新しいメンバーを止める前に、上げる分で枠を使い切らない。枠をまだ観測していない（`utilization: null`）ときは上げてよい |
+| `--max-turns`・`--max-budget-usd`・1 指示 30 USD（5.8） | 変えない | opus は推定額が早く上限に届くが、それが安全側の止まり方 |
+
+**失敗のとき（D-132）**: 鍵が無い・`BATON_JEV_ROUTING=off`・HTTP が 2xx でない・時間切れ・本文が読めない・`tier` が無い・例外 → **プロファイルのモデルと基準のエフォートで起動する**（振り分けない）。やり直しはしない。起動を待たせるのは最大 1.5 秒。失敗はランナーのログに `warn`（`Jev に聞けませんでした`、理由は `timeout` / `http 5xx` / `bad_body` / `no_key` などの短い語。鍵・本文は出さない）。
+
+**鍵（D-134）**: ランナーが問い合わせのたびに次の順で探す（`settings.json` は mtime が変わったときだけ読み直す）。
+
+1. 環境変数 `BATON_TYPESAFE_API_KEY`（`runner.env`）
+2. `~/.claude/settings.json` の `pluginConfigs["jev-model-router@skills-dir"].options.typesafeApiKey`
+3. 同じく `pluginConfigs["jev-model-router"].options.typesafeApiKey`
+
+読むのはランナー（サンドボックスの外の親）だけ。流用するのは鍵だけで、`fastModel`・`timeoutMs` などほかのオプションは読まない（Baton の振る舞いは版管理と `runner.env` で決める）。鍵は **ログ・D1・トランスクリプト・ハートビート・子の環境（7.7）・`claude` の引数に出さない**。ログとローカルの `/status` に出すのは出どころ（`env` / `settings` / `none`）だけ。`settings.json` が壊れていても落ちない（`none`）。
+
+**切り替え（D-135）**: `BATON_JEV_ROUTING`
+
+| 値 | 振る舞い |
+|---|---|
+| `off`（コードの既定） | 呼ばない。今までどおり |
+| `shadow` | 呼んで判定と「選んだはずのモデル」を記録するが、起動はプロファイルのまま（試し運転） |
+| `on`（本番） | 呼んで、その結果で起動する |
+
+ほかに `BATON_TYPESAFE_BASE_URL`（既定 `https://api.typesafe.ai`。テストで偽の Jev に向ける）、`BATON_TYPESAFE_MODEL`（既定 `jev-latest`）、`BATON_JEV_TIMEOUT_MS`、`BATON_JEV_MIN_UPGRADE`・`BATON_JEV_MIN_DOWNGRADE`、`BATON_JEV_UPGRADE_QUOTA`。
+
+**記録（D-136。D1 のスキーマは変えない。0004 は作らない）**
+
+| どこに | 何を |
+|---|---|
+| `agent_sessions.model`（既存の列。`POST /api/runner/sessions` の `model`） | 実際に起動したモデル（`haiku` など） |
+| トランスクリプト（ランナーの出来事。`RUNNER_EVENT_LABELS` に `モデル` を足す） | 起動の直後に 1 行。`summary` は `モデル haiku・エフォート low（Jev: fast 0.87）` / `モデル sonnet（Jev: 判定どおり）` / `モデル sonnet（Jev に聞けず）` / `モデル sonnet（前回と同じ）`。`body` は `{ model, effort, baseModel, baseEffort, source: "jev" \| "shadow" \| "profile" \| "fixed" \| "resume", reason, decision: { tier, confidence, effort, effortConfidence, risky, ms } \| null, clamped: string[] }`。新しいセッションのときだけ書く（再開では書かない。`再開` の行で足りる） |
+| ランナーの手元の状態（`state.ts` の `SessionState.launch`） | `{ model, effort: string \| null, source, at }`。`--resume` と引き継ぎで同じ値を使うため。無ければ D1 の `model` と基準のエフォート |
+| ランナーのログ | `Jev の判定`（mod の `describeDecision()` の 1 行と経過 ms）と `メンバーのモデル`（`route()` の `reason` と `clamped`）。`state` の本文は出さない |
+| ローカルの `GET /status` | `jev: { mode, keySource, lastAt, lastError }` |
+
+**画面（最小限）**: トランスクリプトの `system` の区切り（13.7）に上の 1 行が出るだけ。組織図・設定・サイドパネルは変えない（組織図のシートの `model` はプロファイルの値のまま）。
+
+**テスト**: TypeSafe は呼ばない。ランナーは `ctx.jev`（`JevClient`: `decide(state) → Promise<{ decision: Decision \| null; ms: number; error: string \| null }>`）を差し替えられるようにし、テストは偽の Jev（固定の応答・遅延・失敗）を入れる。HTTP の部分は `BATON_TYPESAFE_BASE_URL` をテストの中の小さな HTTP サーバーに向けて確かめる（R26〜R29）。
+
+**コードの組み立て（実装の目安）**
+
+- `runner/src/claude/jev-policy.ts`（写したロジック＋`clampRouting()`・`redactSecrets()`・`buildJevState()`。I/O なし）、`runner/src/claude/jev.ts`（`JevClient` の HTTP 実装と鍵の読み方）。
+- `orchestrator/common.ts`: `memberLaunchFor(ctx, { profileId, profile, task, round, conflict, previous })` → `{ model, effort, source, reason, item }`。`previous`（手元の `launch`）があればそれを返す（Jev を呼ばない）。
+- `orchestrator/instruction.ts`: `driveMember` の `roleSetup` のあとで決め、`createSession` の `model`・`AgentSession` の `model`/`effort`・`state.patchSession(launch)` に使う。`triedFresh` の新しいセッションは同じ値。
+- `claude/args.ts`: `LaunchSpec.effort: string | null`。null でなければ `--model` の次に `--effort <値>`。`claude/session.ts`: `SessionOptions.effort`、起動のログに `effort` を足す。
+- `claude/profiles.ts`: プロファイルの zod に `effort?: "low"|"medium"|"high"|"xhigh"`、`jev?: { min: "haiku"|"sonnet"|"opus"; max: … }`。`runner/profiles/profiles.json` のメンバーの 4 職種に `jev` を足す（統合担当）。
+- `runner/scripts/jev-probe.ts`（`npm run jev:probe -w runner`）: 決まった 3 つの見本のタスク（機械的・普通・難しい）を本物の Jev に投げ、判定と振り分けを表で出す。`claude` は起動しない。鍵は出どころだけ表示。
 
 ### 5.10 役割のプロンプト（`--append-system-prompt` に入れる「役割の指示」部分）
 
@@ -588,10 +711,15 @@ COO `--model opus --fallback-model sonnet`、リーダー・メンバー `--mode
     "coo":       { "role": "coo",    "model": "opus",   "skills": [],                                      "mcp": [] },
     "leader":    { "role": "leader", "model": "sonnet", "skills": [],                                      "mcp": [] },
     "engineer":  { "role": "member", "model": "sonnet", "skills": [],                                      "mcp": [],
-                   "codexReview": true },                                                                  // 6.4。統合後にランナーが回す
-    "researcher":{ "role": "member", "model": "sonnet", "skills": ["sns-url-research", "prior-art-search"], "mcp": [] },
-    "writer":    { "role": "member", "model": "sonnet", "skills": [],                                      "mcp": [] },
-    "generalist":{ "role": "member", "model": "sonnet", "skills": [],                                      "mcp": [] }
+                   "codexReview": true,                                                                    // 6.4。統合後にランナーが回す
+                   "jev": { "min": "sonnet", "max": "opus" } },                                            // 5.9.1。振り分けの下限・上限
+    "researcher":{ "role": "member", "model": "sonnet", "skills": ["sns-url-research", "prior-art-search"], "mcp": [],
+                   "jev": { "min": "haiku", "max": "opus" } },
+    "writer":    { "role": "member", "model": "sonnet", "skills": [],                                      "mcp": [],
+                   "jev": { "min": "sonnet", "max": "opus" } },
+    "generalist":{ "role": "member", "model": "sonnet", "skills": [],                                      "mcp": [],
+                   "jev": { "min": "haiku", "max": "opus" } }
+    // 任意の "effort": "low" | "medium" | "high" | "xhigh"（振り分けの基準のエフォート。無ければ --effort を付けない。5.9.1・D-130）
   },
   "neverSkills": ["linear-task", "daily-record", "inbox-triage", "inbox-triage-workspace", "file-triage", "casematch-daily-report",
                   "slack-text", "user-dict", "pm-dev-team", "synced"]   // 本人の記録・本人の環境を動かすもの。プロファイルに書いても読み込まない
@@ -812,6 +940,7 @@ const env = {
 - `init.apiKeySource !== "none"` なら即停止・`failed`（「サブスク以外の認証」）・以後の起動を止める。`init.mcp_servers` が空でなければ同じく止める（`--strict-mcp-config` の効き目の確認）。
 - 起動時と 1 時間ごとに `claude auth status`。サブスクのログインでなければ新しいターンを始めず、画面の点を橙。
 - `--name "baton:<role>:<短い ID>"`。
+- **Jev の鍵（5.9.1・D-134）は子に渡さない。** TypeSafe への問い合わせはランナー（親）が起動の前に行う。子のサンドボックスの通信の許可（`SANDBOX_ALLOWED_DOMAINS`）に `api.typesafe.ai` は足さない。子は振り分けの結果を `--model`・`--effort` としてしか知らない。
 
 ---
 
@@ -882,7 +1011,7 @@ erDiagram
 | `rate_limit_event` | `rejected` のときだけ `system`（`枠切れ`） | — | `quota`（9 章） |
 | `task_summary` など・未知の型 | 作らない | — | 生ログだけ |
 | `result` | `result` | `終了` | `{ subtype, numTurns, durationMs, costUsdEst, terminalReason, permissionDenials }` |
-| ランナーの出来事 | `system`（`runner`） | `中断` `再開` `枠待ち` `コミット` `統合` `衝突` `Codex レビュー` | 小さな JSON |
+| ランナーの出来事 | `system`（`runner`） | `中断` `再開` `枠待ち` `コミット` `統合` `衝突` `Codex レビュー` `モデル`（5.9.1） | 小さな JSON |
 
 道具の要約（D-59。Claude Code の英語の `task_summary` は使わない）:
 
@@ -949,6 +1078,7 @@ export type QuotaStatus = {
 | `rejected` か `You've hit your … limit` | `blockedUntil = resetsAt + 60 秒`（無ければ 30 分後）。スレッドは `not_before` 付きで `queued`、発言は `failed` と `notice`「枠切れ・<時刻>に戻る」。メンバーは `quota_wait`、指示は lease を外す |
 | `api_retry`（`rate_limit`） | Claude Code が再試行するので何もしない |
 | 期限を過ぎた | claim を再開。`quota_wait` は `--resume`「枠が戻った。続けて」 |
+| 5 時間枠 ≥ 0.60 か週の枠 ≥ 0.75（`BATON_JEV_UPGRADE_QUOTA`） | メンバーの振り分け（5.9.1）で **基準より上げない**（opus・高いエフォートにしない）。下げるのは通す。起動そのものは止めない（D-131） |
 
 ### 9.3 画面
 
@@ -1291,7 +1421,7 @@ COO スレッドの中のガラスの `card`（幅いっぱい）:
 | `output` | 役割ごとのカード | ＋JSON |
 | `approval` | 紫の承認カード（`許可` / `拒否`、`秘書の案` があれば添える） | 同じ |
 | `denied` | 灰色の 1 行 | 同じ |
-| `system` | 中央の区切り | 再試行も |
+| `system` | 中央の区切り（メンバーの最初の区切りに `モデル haiku・エフォート low（Jev: fast 0.87）`。5.9.1） | 再試行も。`モデル` は `body` の判定（段・確信度・risky・ms）も |
 | `result` | `終了 · 3 分 12 秒 · 18 ターン` | 推定額も |
 | `legacy` | v1 のログ | 同じ |
 
@@ -1501,6 +1631,15 @@ COO スレッドの中のガラスの `card`（幅いっぱい）:
 
 **ランナー**: R1〜R3・R8 削除。R1' 引数（7.2・6.1。子の環境に API キー・ランナートークンが無い）、R2' 承認、R4 シナリオ A 全体、R5 `ask_leader`、R6 落ちた想定と worktree の引き継ぎ、R7 上限、R9 取消・中断、R10 枠、R11 tailnet HTTP、R12 SIGTERM、R13 ターンの順番、R14 git（既存リポジトリ。未コミットの変更・失敗するフック・別のブランチをチェックアウト中の本体が変わらない）、R15 git（Baton 専用）、R16 並行と衝突、R17 ロックと引き継ぎ、R18 リポジトリの走査、R19 認証（`[apikey]`・`[mcpleak]` で停止）、R20 正規化と送信・ストリーム、R21 版と話し中の保留、R22 会話の区切り、R23 プロファイル（`--plugin-dir` の組み立てとスキルの写し、`neverSkills` を外す、スキルの `allowed-tools` が拒否に当たらない、`ceoStyle` の見出しの取り込み）、R24 秘書の発言のターンで `delegate`・`propose_project` を行わない、R25 Codex レビュー（偽の `codex-review.sh` で、条件のときだけ 1 回、指摘が `review_findings` に入る、`off` で回らない）。
 
+**ランナー（Jev の振り分け。5.9.1）**: TypeSafe は呼ばない。偽の Jev は `ctx.jev` に差し込む `FakeJev`（応答を台本で返す: `fast`/`balanced`/`deep`・確信度・`effort`・`risky`、`delayMs`、`fail: "timeout" | "http500" | "badjson" | "throw"`、呼ばれた `state` を記録）。
+
+| # | ケース |
+|---|---|
+| R26 | **方針（純粋関数）**: mod の `route()` の挙動をそのまま確かめる（上げは 0.3・下げは 0.6、確信度 null は上げだけ、`risky` > 0.7 で `deep`・`high` 以上、`risky` でエフォートを下げない、同じ段は変えない）。その後の `clampRouting()`: `engineer`・`writer` は haiku に下がらない、`researcher`・`generalist` は haiku に下がる、衝突の解決は sonnet 以上、`xhigh` は opus のときだけ（sonnet なら `high`）、`max` は出ない、枠 0.60/0.75 以上で上げない（下げは通る）、枠が未観測なら上げる、`risky` の強制も上限を越えない。基準のエフォートが無い職種で結果が `medium`（みなし）なら `--effort` を付けない。`redactSecrets()`（`sk-…`・`btn_bot_…`・`ghp_…`・PEM・40 文字の連続が `[伏せ字]`）、`buildJevState()` に `goal`・パス・依存の結果の本文が入らない |
+| R27 | **HTTP のクライアント**（テストの中の HTTP サーバーに `BATON_TYPESAFE_BASE_URL` を向ける）: `POST /v1/systemone`、`Authorization: Bearer <鍵>`、本文が `{ model: "jev-latest", state, questions: { tier, effort, risky } }`（`risky` は `noul`）。応答の `answers` を `Decision` に読む。時間切れ（`BATON_JEV_TIMEOUT_MS=100` でサーバーが 300ms 待つ）・500・壊れた JSON・`tier` 無し → `decision: null` と理由。鍵が無いとリクエストを出さない。どのログの行にも鍵の文字列が無い（ログを集めて検査） |
+| R28 | **起動と再開**（偽 claude ＋ `FakeJev`、`BATON_JEV_ROUTING=on`）: 新しい work タスク（`generalist`、Jev が `fast` 0.9・effort 0）→ 引数に `--model haiku --effort low`、`createSession` の `model` が `haiku`、トランスクリプトに `モデル` の項目、手元の状態に `launch`。`ask_leader` の答え・承認の回答・中断からの再開・`quota_wait`・ランナーの再起動・追加の依頼の `--resume` で **Jev が呼ばれず** 同じ `--model`・`--effort`。`--resume` できず新しいセッションで引き継ぐ（`triedFresh`）ときも同じ値で Jev は呼ばれない。ラウンド 2 のタスクと衝突の解決は呼ばれる（`round: 2`、`conflictResolution: true`）。Jev が失敗（4 種）・1.5 秒を超える → `--model sonnet`・`--effort` 無しで起動し、`モデル sonnet（Jev に聞けず）`。`off` で呼ばれない（引数が今と同じ）、`shadow` で呼ばれて記録されるが `--model sonnet`、`BATON_MODEL_MEMBER=haiku` で呼ばれない。COO・リーダーのターンでは一度も呼ばれない。子の環境に鍵が無い（R1' と同じ検査） |
+| R29 | **鍵の読み方**: `BATON_TYPESAFE_API_KEY` ＞ `settings.json` の `jev-model-router@skills-dir` ＞ `jev-model-router`。`settings.json` が無い・壊れている・鍵が空 → `none`（落ちない）。mtime が変わると読み直す。`/status` の `jev.keySource` が出どころだけを出す |
+
 **E2E**（偽 claude。`BATON_APPROVAL_WAIT_MS=3000`、`BATON_THREAD_IDLE_MS=2000`、`FAKE_QUOTA_RESET_SEC=5`、会話の区切り 3 秒、通知のまとめ 1 秒。global setup が `sample-repo` を作る）:
 
 - 維持して中身を合わせる: E1・E2（入力欄は COO 宛て）・E3、E5〜E8（カードは会話から作る。ヘルパー `createInstructionViaChat()`）、E9（承認の判断待ちに）、E10〜E17。E4 は E40 に置き換え。
@@ -1544,6 +1683,15 @@ COO スレッドの中のガラスの `card`（幅いっぱい）:
 6. ダーク: Mac の外観をダークにして主要画面。
 7. 秘書: 設定でトークンを発行し、`curl` で `POST /mcp` の `tools/list` と `baton_overview`、`baton_send_to_coo` → COO スレッドに `秘書から`。確認後にトークンを失効。
 8. 5 時間枠の使用率の変化を記録し、README に「シナリオ A 1 回の目安」として書く。
+9. **モデル（5.9・5.9.1）**: 安い確認で、リーダーが opus で、Jev の判定がログに出て、メンバーが選ばれたモデルで起動することを確かめる。
+   1. Mac mini の `~/.config/baton/runner.env` に `BATON_MODEL_LEADER=opus`・`BATON_JEV_ROUTING=on` があり、`BATON_MODEL_MEMBER` が **無い** こと（あると振り分けない）。`launchctl kickstart -k gui/$(id -u)/com.rikuhiromatsu.baton-runner`。
+   2. `curl -s http://127.0.0.1:7777/status | jq .jev` で `mode: "on"`・`keySource: "settings"`（か `env`）。鍵そのものが出ていないこと。
+   3. `npm run jev:probe -w runner`（`claude` は起動しない。TypeSafe に 3 回、入力トークンだけ課金）で、機械的な見本が `fast`、難しい見本が `deep` 寄りに出て、振り分けの表（`haiku/low` など、`clamped`）が出ること。
+   4. 画面から COO に「Baton 専用で、`hello.txt` に『こんにちは』と 1 行だけ書く作業を、一般職（generalist）1 人でお願いします」。リーダーのスレッドの最初のターンの `init`（ランナーのログの `claude の init`）の `model` が opus（`claude-opus-…`）。
+   5. メンバーが起動したら、ランナーのログ（`~/Library/Logs/baton/runner.log`）に `Jev の判定`（`tier fast (0.xx) · effort … · risky … · NNNms`）と `メンバーのモデル`（`haiku/low` など）が並び、続く `claude を起動しました` の `model` が同じ。`ps -o args= -p <メンバーの claude の pid>` に `--model haiku`（と `--effort low`）。`claude の init` の `model` が `claude-haiku-…`。
+   6. 画面のメンバーのトランスクリプトの最初の区切りに `モデル haiku・エフォート low（Jev: fast 0.xx）`。`/org` の表示は変わらない。
+   7. 失敗の確認: `runner.env` に `BATON_TYPESAFE_BASE_URL=http://127.0.0.1:9`（つながらない）を一時的に足して再起動し、同じ依頼をもう 1 回 → ログに `Jev に聞けませんでした（…）`、メンバーは `--model sonnet`・`--effort` 無しで起動、トランスクリプトは `モデル sonnet（Jev に聞けず）`。確かめたら行を消して再起動。
+   8. Jev が `fast` 以外を返して haiku にならなかったときは、判定の行（確信度・理由）を記録して実装担当に伝える（下げは 0.6 以上が要る。誤りではない）。合計の推定額は $0.5 以内の見込み。
 
 本人（実機）: iPhone で PWA をホーム画面に追加 → 通知を許可 → アプリを閉じて COO の質問・承認待ちが届き、タップで該当の画面 → 開いている間は鳴らない（M-v2-7）。ダークモードとステータスバーの見え方。
 
@@ -1594,6 +1742,8 @@ COO スレッドの中のガラスの `card`（幅いっぱい）:
 | メンバーの返事のストリーミング | 量が多い。メッセージ単位で十分 |
 | 1 指示を複数プロジェクトに分割 | v1 と同じ |
 | API キーでの実行への自動切り替え | 要件 |
+| COO・リーダーのモデルの自動の振り分け、ターンごとの振り分け | 起動時に決めた形でキャッシュを保つ。COO・リーダーは長く続くスレッドのセッション（5.9.1・D-128） |
+| 振り分けの切り替え・選ばれたモデルを組織図や設定の画面に出す | 最小限。トランスクリプトの 1 行とランナーのログで足りる（D-136） |
 
 ---
 
@@ -1609,6 +1759,7 @@ COO スレッドの中のガラスの `card`（幅いっぱい）:
 | **V3 ランナー** | `runner/**`（`profiles/` は V0 の既定を読むだけ。中身の変更は統合担当へ） | V0。結合は V5 | R1'・R2'・R4〜R7・R9〜R25。7.2 のサンドボックスの実物確認と、`researcher` のスキル（`sns-url-research`・`prior-art-search`）が動くことを記録。ローカルの `vite dev`（V1）に対して本物の claude（`BATON_MODEL_*=haiku`）でシナリオ A の A1〜A3 を 1 回 |
 | **V4 E2E と CI** | `e2e/**`（偽のプッシュサービスのヘルパーを含む）、`.github/workflows/ci.yml`（中身）、`scripts/assert-no-test-routes.mjs`、`scripts/smoke-prod.mjs` | V0。通すには V1・V2・V3・V5 | 15.3 の E2E が 3 プロジェクトで通る。CI が緑（偽 claude、外に繋がない） |
 | **V5 偽 claude** | `tools/fake-claude/**` | V0 | 15.2 の全台本とマーカー。自身のテスト。出力が `claude-stream.ts` を通る |
+| **V7 メンバーのモデルの振り分け（Jev。5.9・5.9.1）** | `runner/src/claude/jev-policy.ts`（新）・`runner/src/claude/jev.ts`（新）・`runner/src/orchestrator/common.ts`・`runner/src/orchestrator/instruction.ts`・`runner/src/claude/args.ts`・`runner/src/claude/session.ts`・`runner/src/claude/profiles.ts`（zod に `effort`・`jev`）・`runner/src/config.ts`（`BATON_JEV_*`・`BATON_TYPESAFE_*`）・`runner/src/state.ts`（`SessionState.launch`）・`runner/src/context.ts`（`ctx.jev`）・`runner/src/local-server.ts`（`/status` の `jev`）・`runner/scripts/jev-probe.ts`・`runner/package.json`（`jev:probe`）・`runner/test/**`。統合担当に依頼: `packages/shared/src/transcript.ts` の `RUNNER_EVENT_LABELS` に `モデル`、`runner/profiles/profiles.json` のメンバー 4 職種に `jev`、`README.md` の `runner.env` の例（`BATON_MODEL_LEADER=opus`・`BATON_JEV_ROUTING=on`） | V3・V5 が main にあること（今の main） | R26〜R29 と既存の R が通る（`BATON_JEV_ROUTING` の既定 `off` で既存のテストの引数が変わらない）。`modelFor` でリーダーが sonnet 以外なら `--fallback-model sonnet`（D-127）。15.4 の 9 が通る。Codex レビュー（本人のルール） |
 | **V6 統合と本番移行** | `scripts/setup-mini.sh`、`README.md`、`runner/launchd/*.template`（PATH だけ。V3 と調整）、各単位の小さな修正（単位を明記） | V1〜V5、M-v2-1 | 16.2 を実行し 15.4 が通る。実装で決めたことを D-番号で追記 |
 
 ```mermaid
@@ -1623,7 +1774,10 @@ flowchart LR
   V3 --> V4
   V5 --> V4
   V4 --> V6[V6 統合・本番移行]
+  V6 --> V7[V7 Jev の振り分け]
 ```
+
+- V7 は v2 の本番稼働のあとの追加（2026-10-20）。単独の 1 人で、V3 の持ち物（`runner/**`）だけを触り、契約と `profiles.json` は統合担当に依頼する。
 
 - V0 を先に 1 人で。その後 V1・V2・V3・V5 を同時に。V4 はテストを並行で書き、通すのは最後。
 - 契約・`app/wrangler.jsonc`・`app/vite.config.ts`（vite-plugin-pwa の `injectManifest` への切り替えを含む）・`runner/profiles/profiles.json` の変更は統合担当に依頼して 1 か所で入れる。
@@ -1718,6 +1872,17 @@ flowchart LR
 | D-124 | 時間切れのあと CEO が許可した操作は、1 回限りの許可ルールに加えて、ランナーが can_use_tool の入力とぴったり照らして 1 回だけ許可する。メンバーの役割の指示に「読むのは Read・Grep・Glob、書くのは Write・Edit。Bash は道具で代われないときだけ」を足す | Claude Code は Bash を && ・改行で区切って部分ごとにルールを当てるので、`Bash(<全文>)` は複合コマンド（ヒアドキュメントで台本を書くなど）に当たらず、再開後にまた承認を求めて時間切れを繰り返した | ルールを部分ごとに分けて渡す（cd・cat > などを広く許すことになる） |
 | D-125 | 承認カードのコマンドは高さの上限（12.5em、compact は 5em）を付けて中だけスクロールする | ヒアドキュメントの長いコマンドでカードが 2,000px を超え、許可・拒否のボタンが画面の外に出た | 長いコマンドを切り詰める（何を許すのか全文が読めなくなる） |
 | D-126 | 秘書 bot の認証は `Authorization: Bearer btn_bot_…` に加えて、前置きの無い `btn_bot_…` も受ける | xAI の Remote MCP の `authorization` は「Authorization ヘッダに入るトークン」とだけあり、Bearer を付けるかが書かれていない（M-v2-8 の登録でつまずかないように） | Bearer だけ（xAI の実装次第で 401） |
+| D-127 | リーダーも本番は `opus`（Mac mini の `runner.env` に `BATON_MODEL_LEADER=opus`）。コードの既定（`profiles.json` の `leader`）は `sonnet` のまま。リーダーのモデルが `sonnet` 以外なら COO と同じく `--fallback-model sonnet` を付ける（`modelFor` の 1 行）。D-61 のリーダーの部分を変える | 本人の要望（2026-10-20）。計画（タスクの分け方・`paths` の割り振り）と報告のまとめの質がチーム全体の出来を決める。退避が無いと opus の混雑でリーダーのターンが落ちる | `profiles.json` の既定を opus に（テストと V3 の確認の安さが崩れる）、退避なし（混雑で落ちる） |
+| D-128 | メンバーの **新しいセッションの起動時だけ**、ランナーが TypeSafe の Jev に 1 回問い合わせて `--model` と `--effort` を決める。COO・リーダーは固定（5.9） | Baton は本人の設定も mod も読ませない（D-47・D-48・D-118）ので mod は子に効かない。起動時に決めればプロンプトキャッシュを壊さない（先行事例でもオーケストレーターが起動時に選ぶ形が現実的）。メンバーはタスクごとに重さが大きく違う | mod を子に読ませる（`--setting-sources` を開ける・`~/.claude` の拒否を外す・子に鍵を渡すことになる）、ターンごとに変える（キャッシュが壊れる）、リーダーの `plan` にモデルを書かせる（`LeaderTurn` の契約が変わり、リーダーの判断のばらつきがそのまま枠に出る）、COO・リーダーも振り分ける（長いスレッドのセッションで、途中で変えればキャッシュが壊れる） |
+| D-129 | 問い（`tier`・`effort`・`risky`）・しきい値（0.3・0.6・0.7）・`route()` は本人の mod の `hooks/policy.ts` を `runner/src/claude/jev-policy.ts` に写す（出どころと MIT・写した日・変えた所をファイルの先頭に書く）。写すのは TypeSafe の形だけ。Baton の上限は `route()` のあとの `clampRouting()` で当てる | 本人が普段使っている判定と同じ物差しにでき、mod の境界（確信度 null は上げだけ、`risky` でエフォートを下げない など）をそのまま使える。版管理の中に置くので、mod の更新で Baton の振る舞いが黙って変わらない | 実行時に `~/claude-config` から import（版管理の外。mod の `$` 前提の作りに縛られる）、Baton 独自の問い（本人の mod と比べられない）、`route()` の中を書き換える（写しとの違いが追えなくなる） |
+| D-130 | 基準は職種のプロファイルの `model` と任意の `effort`。`effort` が無ければ `--effort` を付けない（Claude Code の既定）を基準にし、比較では `medium` とみなす（定数 1 か所）。結果が基準と同じなら `--effort` を付けない | Claude Code の既定のエフォートは `init` に出ず確かめられない。基準のままなら今と同じ引数になり、振り分けが外れたときの振る舞いが変わらない | 常に `--effort` を明示（振り分けを切っても今と引数が変わる）、基準を `high` とみなす（Jev の `medium` が「下げ」になり 0.6 が要る。既定が `medium` なら逆に損） |
+| D-131 | Baton の上限: 職種ごとの下限・上限（`engineer`・`writer` は sonnet〜opus、`researcher`・`generalist` は haiku〜opus）、衝突の解決は sonnet 以上、`xhigh` は opus のときだけ、`max` は使わない、5 時間枠 ≥ 0.60 か週 ≥ 0.75 では基準より上げない（下げは通す）。`risky` の強制もこの上限の中。`--max-turns`・推定額の上限は変えない | メンバーは 1 タスクを最大 80 ターンでやり切るので、mod のサブエージェントより haiku の失敗が高くつく。9.2 の 80%/90% で止まる前に、上げる分で枠を使い切らない。メンバーはサンドボックスで本番に触れないので `risky` で上限を越える必要は無い | mod のまま上限なし（コードが haiku に落ちる・枠を opus で使う）、枠に関係なく上げる、opus の同時数の上限（メンバー並列が 2 なので枠のしきい値で足りる） |
+| D-132 | 鍵が無い・`off`・2xx 以外・時間切れ（1,500ms）・本文が読めない・例外は、プロファイルのモデルと基準のエフォートで起動する。やり直しはしない。ログに短い理由だけ | 振り分けは節約と質の上乗せで、無くても今と同じに動く。起動を待たせない（mod も「失敗は要求をそのまま」） | 失敗で起動を止める、やり直す（待ちが延びる）、失敗時に安全側として opus（枠） |
+| D-133 | `--resume`（答え・承認・中断・`quota_wait`・再起動・追加の依頼）と、`--resume` できずに新しいセッションで引き継ぐときは、前回のモデル・エフォートを使い Jev を呼ばない（ランナーの手元の `SessionState.launch`、無ければ D1 の `model`）。ラウンド 2 の追加タスクと衝突の解決は新しいセッションなので呼ぶ | 同じ会話・同じタスクの続きでモデルを変えるとキャッシュが無駄になり、文脈の引き継ぎも崩れる。前任の作業量を Jev は知らない | 再開のたびに聞き直す（キャッシュ・判断の揺れ）、引き継ぎで聞き直す |
+| D-134 | 鍵は `BATON_TYPESAFE_API_KEY` ＞ `~/.claude/settings.json` の `pluginConfigs["jev-model-router@skills-dir"]` ＞ `["jev-model-router"]` の `typesafeApiKey` の順でランナー（親）が読む（本人の許可済み）。流用するのは鍵だけ。鍵はログ・D1・トランスクリプト・ハートビート・子の環境・引数に出さない | 本人がすでに設定した鍵を二重に管理しない。ランナーはサンドボックスの外なので読める。ほかのオプションを読むと本人の mod の設定替えで Baton が黙って変わる | 鍵を `runner.env` だけに（二重管理）、mod のオプションも全部読む、Worker のシークレットに置く（Mac mini から呼ぶので不要な経路が増える） |
+| D-135 | 切り替えは `BATON_JEV_ROUTING`（`off` / `shadow` / `on`）。コードの既定は `off`、本番の `runner.env` は `on`。`shadow` は判定を記録するが起動はプロファイルのまま。`BATON_MODEL_MEMBER` があれば振り分けない | テスト・E2E・V3 の確認（`BATON_MODEL_*=haiku`）の引数が変わらない。固定の指定は意図なので Jev より強い。試し運転ができる | 鍵があれば自動で `on`（テストの環境に鍵があると挙動が変わる）、`BATON_MODEL_MEMBER` を基準にして振り分ける（固定の意味が無くなる） |
+| D-136 | 記録は `agent_sessions.model`（選んだモデル）、トランスクリプトのランナーの出来事 `モデル`（エフォート・理由・判定を `body` に）、ランナーの手元の状態とログ。D1 のスキーマは変えない（0004 なし）。画面はトランスクリプトの 1 行だけ | 今ある列と項目で足りる。セッションごとに 1 行なので D1 の書き込みも増えない。理由は詳細を開いたときに分かれば十分 | `agent_sessions` に `effort`・`routing_reason` の列（0004。マイグレーションと契約が増える割に、画面で使う所が無い）、組織図にモデルのバッジ（最小限にする） |
+| D-137 | Jev に渡す `state` は、タスクの件名・`spec`（先頭 4,000 文字、鍵らしい文字列を伏せ字）・`paths`・職種と 1 行の説明・作業場所の種類・ラウンド・衝突の解決か・依存の数・`--max-turns`。目的・パス・依存の結果・ファイルの中身・会話・名前は渡さない | 判定に要るのは作業の形。外部（TypeSafe）に出る量を減らす（入力トークン課金も減る）。mod も送るのはプロンプトと説明だけ | タスクの入力文（`buildMemberTaskInput`）を丸ごと（worktree のパス・依存の結果が出る）、件名だけ（判定が粗い） |
 
 v1 の決定で v2 でも有効なもの: D-1〜D-3、D-5〜D-9、D-13（Baton 専用に限る。D-51）、D-14〜D-16、D-19〜D-26、D-28〜D-33、D-35、D-36、D-38、D-39。覆したもの: D-4・D-10・D-11・D-12・D-17・D-18・D-27・D-34・D-37、v1 の「プッシュ通知をやらない」。
 
@@ -1727,7 +1892,7 @@ v1 の決定で v2 でも有効なもの: D-1〜D-3、D-5〜D-9、D-13（Baton �
 
 | # | 作業 | いつまでに | 補足 |
 |---|---|---|---|
-| M-v2-1 | Baton と自分の対話利用で同じ Max の枠を使うことの了承、しきい値（5 時間枠 80%・週 90%）とモデル（COO opus、ほか sonnet）の確認 | V6 の前 | 確認時点で 5 時間枠は 67%。`runner.env` で変えられる |
+| M-v2-1 | Baton と自分の対話利用で同じ Max の枠を使うことの了承、しきい値（5 時間枠 80%・週 90%）とモデル（COO・リーダー opus、メンバーは Jev で haiku〜opus。5.9）の確認 | V6 の前 | 確認時点で 5 時間枠は 67%。`runner.env` で変えられる |
 | M-v2-2 | Mac mini の `claude` のログインを保つ（期限が近づいたら `/login`。Baton では点が橙） | 随時 | MBA からの画面共有か SSH で |
 | M-v2-3 | どの既存リポジトリを Baton で使うか決める（`short-video-auto-edit` を `my-project` にするかなど） | 使い始めるとき | `baton/…` ブランチが増える。取り込みとブランチの削除は自分で |
 | M-v2-4 | 本番確認用の壊れても困らないリポジトリを 1 つ指定（無ければ `~/projects/rikuhiromatsu/baton-sandbox` を作ってよいかの許可） | V6 の前 | 15.4 の 4 |
@@ -1751,6 +1916,7 @@ Cloudflare・Google・Tailscale の追加の手作業は無い（VAPID の鍵の
 - TODO: https://code.claude.com/docs/en/agent-sdk/todo-tracking
 - Agent SDK の型: `@anthropic-ai/claude-agent-sdk@0.3.303`、https://code.claude.com/docs/en/agent-sdk/typescript
 - デスクトップアプリ: https://code.claude.com/docs/en/desktop
+- TypeSafe の System One（Jev）: `POST https://api.typesafe.ai/v1/systemone`（`Authorization: Bearer`、`{ model: "jev-latest", state, questions }`、答えは `answers.<名前>` に `choice`/`score`/`noul` と `confidence`。入力トークンだけ課金）。本人の mod `~/claude-config/skills/jev-model-router/`（`hooks/policy.ts`・`hooks/jev-model-router.ts`・`README.md`、claude-code-templates 製、MIT）
 - xAI の Remote MCP Tools（`server_url`・`server_label`・`authorization`・`headers`・`allowed_tools`、streamable HTTP と SSE）: https://docs.x.ai/developers/tools/remote-mcp
 - Web Push: RFC 8291（Message Encryption for Web Push）、RFC 8292（VAPID）、RFC 8030（Generic Event Delivery Using HTTP Push）
 - 実物: Mac mini の `claude --help`（2.1.303）、`claude auth status`、haiku での試し実行 10 回（stream-json の型、`dontAsk`、`--permission-prompt-tool stdio`、stream-json 入力での続けての会話、`--resume`、`--setting-sources ""` と `CLAUDE.md`、サンドボックスの通信拒否、`--json-schema` と `--session-id`/`--resume`、`--setting-sources ""` でもコネクタが残ること、`--strict-mcp-config` で 0 になること、`--plugin-dir` とシンボリックリンクのスキル）

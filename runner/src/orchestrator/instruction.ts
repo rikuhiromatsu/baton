@@ -27,7 +27,7 @@ import { dataPaths } from "../config.ts";
 import { readFileInside } from "../lib/files.ts";
 import { CONFLICT_SPEC_PREFIX } from "./actions.ts";
 import { runCodexReview } from "./codex.ts";
-import { clip, leaderThreadIdOf, roleSetup } from "./common.ts";
+import { clip, leaderThreadIdOf, memberLaunchFor, roleSetup } from "./common.ts";
 
 export type InstructionClaim = Extract<ClaimOutput, { kind: "instruction" }>;
 
@@ -350,7 +350,7 @@ async function resumeUnit(run: Run, s: AgentSessionSummary): Promise<(() => Prom
     if (!followUpOnly) run.worked = true;
     await restoreWorktree(ctx, ws, run.instruction.id);
     if (task && task.status !== "running" && !followUpOnly) run.tasks.set(task.id, await ctx.api.patchTask(task.id, { status: "running" }));
-    return driveMember(run, { task: task ?? null, ws, agent, sessionId: s.id, resume: true, input: finalInput, createSession: false, oneTimeAllow, preApproved, followUpOnly, startSeq: s.lastSeq });
+    return driveMember(run, { task: task ?? null, ws, agent, sessionId: s.id, resume: true, input: finalInput, createSession: false, oneTimeAllow, preApproved, followUpOnly, startSeq: s.lastSeq, previousModel: s.model });
   };
 }
 
@@ -370,11 +370,28 @@ async function driveMember(
     preApproved?: { toolName: string; toolInput: Record<string, unknown> } | null;
     followUpOnly?: boolean;
     startSeq?: number;
+    /** D1 のセッションの model（手元の launch が無いときの前回値。5.9.1） */
+    previousModel?: string | null;
   },
 ): Promise<UnitResult> {
   const { ctx, project, instruction, signal } = run;
   const { task, ws, agent } = input;
   const setup = await roleSetup(ctx, { role: "member", agentProfile: agent?.profile ?? null, project, repoDir: project.workspaceKind === "repo" ? ws.worktreePath : null });
+  // モデルとエフォート（5.9.1）: 新しいセッションの起動時だけ Jev で決める。--resume は手元の launch（無ければ D1 の model）
+  const prevState = input.resume ? await ctx.state.session(input.sessionId) : null;
+  const baseEffort = setup.profile.effort ?? null;
+  const previous = input.resume ? (prevState?.launch ?? { model: input.previousModel || setup.model, effort: baseEffort, source: "resume" as const, at: 0 }) : null;
+  const launchFor = (prev: typeof previous) =>
+    memberLaunchFor(ctx, {
+      profileId: setup.profileId,
+      profile: setup.profile,
+      task,
+      round: task?.round ?? 1,
+      conflict: task?.spec.startsWith(CONFLICT_SPEC_PREFIX) ?? false,
+      workspaceKind: project.workspaceKind === "repo" ? "repo" : "baton",
+      previous: prev,
+    });
+  let launch = await launchFor(previous);
   if (input.createSession) {
     await ctx.api.createSession({
       id: input.sessionId,
@@ -387,10 +404,10 @@ async function driveMember(
       workspaceId: ws.id,
       title: clip(task?.title ?? "追加の依頼", 60),
       cwd: ws.worktreePath,
-      model: setup.model,
+      model: launch.model,
     });
   }
-  await ctx.state.patchSession(input.sessionId, { instructionId: instruction.id, taskId: task?.id ?? null, workspaceId: ws.id, cwd: ws.worktreePath });
+  await ctx.state.patchSession(input.sessionId, { instructionId: instruction.id, taskId: task?.id ?? null, workspaceId: ws.id, cwd: ws.worktreePath, launch: launch.record });
 
   let sessionId = input.sessionId;
   let resume = input.resume;
@@ -403,7 +420,8 @@ async function driveMember(
       resume,
       cwd: ws.worktreePath,
       addDirs: [],
-      model: setup.model,
+      model: launch.model,
+      effort: launch.effort,
       fallbackModel: setup.fallback,
       profileId: setup.profileId,
       profile: setup.profile,
@@ -430,6 +448,7 @@ async function driveMember(
   await session.launch();
   await ctx.api.patchSession(sessionId, { status: "running", pauseReason: null, started: true, error: null }).catch(() => undefined);
   if (resume) session.sink.add(runnerEventItem("再開"));
+  else if (launch.item) session.sink.add(launch.item);
   const register = () =>
     ctx.coord.memberSessions.set(sessionId, {
       instructionId: instruction.id,
@@ -521,6 +540,8 @@ async function driveMember(
           await ctx.api.patchSession(sessionId, { status: "failed", error: "再開できませんでした", ended: true }).catch(() => undefined);
           sessionId = randomUUID();
           resume = false;
+          // 引き継ぎの新しいセッションは前のセッションと同じモデル・エフォート（Jev は呼ばない。D-133）
+          launch = await launchFor(launch.record);
           await ctx.api.createSession({
             id: sessionId,
             threadId: null,
@@ -532,12 +553,14 @@ async function driveMember(
             workspaceId: ws.id,
             title: clip(task?.title ?? "追加の依頼", 60),
             cwd: ws.worktreePath,
-            model: setup.model,
+            model: launch.model,
           });
+          await ctx.state.patchSession(sessionId, { instructionId: instruction.id, taskId: task?.id ?? null, workspaceId: ws.id, cwd: ws.worktreePath, launch: launch.record });
           text = `${buildTurnInput([{ tag: TURN_TAGS.runner, text: "前任の変更が残っている。git status で確かめて続けて" }])}\n${task ? buildMemberTaskInput({ title: task.title, spec: task.spec, paths: task.paths, goal: project.goal, dependencyResults: [], worktree: ws.worktreePath }) : text}`;
           session = makeSession();
           await session.launch();
           await ctx.api.patchSession(sessionId, { status: "running", started: true }).catch(() => undefined);
+          if (launch.item) session.sink.add(launch.item);
           register();
           continue;
         }

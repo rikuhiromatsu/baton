@@ -5,6 +5,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPaths, type RunnerConfig } from "./config.ts";
 
+/** 起動したモデルとエフォート（5.9.1・D-136）。--resume と引き継ぎで同じ値を使う */
+export type LaunchRecord = {
+  model: string;
+  effort: string | null;
+  source: "jev" | "shadow" | "profile" | "fixed" | "resume";
+  at: number;
+};
+
 export type SessionState = {
   sessionId: string;
   instructionId: string | null;
@@ -16,6 +24,8 @@ export type SessionState = {
   pendingTool?: { toolName: string; toolInput: Record<string, unknown> } | null;
   /** リーダーの答え（answer_member）。--resume で渡す */
   pendingAnswer?: string | null;
+  /** メンバーを起動したときのモデルとエフォート */
+  launch?: LaunchRecord;
   updatedAt: number;
 };
 

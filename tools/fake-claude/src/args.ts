@@ -8,6 +8,8 @@ export type FakeArgs = {
   verbose: boolean;
   includePartialMessages: boolean;
   model: string | null;
+  /** --effort（受け取るだけで、台本・出力には影響しない） */
+  effort: string | null;
   fallbackModel: string | null;
   sessionId: string | null;
   resume: string | null;
@@ -109,6 +111,7 @@ export function parseArgs(argv: readonly string[]): FakeArgs {
     verbose: false,
     includePartialMessages: false,
     model: null,
+    effort: null,
     fallbackModel: null,
     sessionId: null,
     resume: null,
@@ -223,6 +226,9 @@ export function parseArgs(argv: readonly string[]): FakeArgs {
           break;
         case "--fallback-model":
           a.fallbackModel = value;
+          break;
+        case "--effort":
+          a.effort = value;
           break;
         case "--session-id":
           a.sessionId = value;

@@ -262,7 +262,7 @@ export function approvalItem(input: {
 }
 
 /** ランナーの出来事（8.3 の最後の行） */
-export const RUNNER_EVENT_LABELS = ["中断", "再開", "枠待ち", "コミット", "統合", "衝突", "Codex レビュー"] as const;
+export const RUNNER_EVENT_LABELS = ["中断", "再開", "枠待ち", "コミット", "統合", "衝突", "Codex レビュー", "モデル"] as const;
 export type RunnerEventLabel = (typeof RUNNER_EVENT_LABELS)[number];
 export function runnerEventItem(label: RunnerEventLabel, body: Record<string, unknown> = {}, detail?: string): TranscriptDraft {
   return draft({ kind: "system", author: "runner", summary: detail ? `${label} ${detail}` : label, body });

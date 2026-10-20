@@ -23,7 +23,9 @@ export type LaunchSpec = {
   cwd: string;
   addDirs: string[];
   model: string;
-  /** COO は sonnet に退避（5.9） */
+  /** --effort の値。null は付けない（Claude Code の既定。5.9.1） */
+  effort: string | null;
+  /** COO と、sonnet 以外のリーダーは sonnet に退避（5.9・D-127） */
   fallbackModel: string | null;
   maxTurns: number;
   maxBudgetUsd: number;
@@ -108,6 +110,7 @@ export function buildArgs(spec: LaunchSpec): string[] {
     "--model",
     spec.model,
   ];
+  if (spec.effort) args.push("--effort", spec.effort);
   if (spec.fallbackModel && spec.fallbackModel !== spec.model) args.push("--fallback-model", spec.fallbackModel);
   args.push(
     "--setting-sources",
