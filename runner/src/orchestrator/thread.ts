@@ -81,6 +81,14 @@ function handoffText(context: ThreadTurnContext, inbox: readonly InboxItem[]): s
   return `これまでの会話（新しいセッションへの引き継ぎ）:\n${msgs.map((m) => `- ${who(m.authorKind)}: ${clip(m.body.replace(/\s+/g, " "), 300)}`).join("\n")}`;
 }
 
+/** 本文が空のまま返事を待つターン（本物の Opus が返事を思考の中だけに書いて終えた）への頼み直し */
+export const SILENT_REPLY_RETRY = "直前のターンは awaitingReply が true なのに、返事の本文が空だった（CEO には何も届いていない）。CEO への返事を文章で書いてから、もう一度 StructuredOutput で答えて。";
+
+/** 返事を待つのに、本文も reply も行動も無い。相づちへの無言（D-77）は awaitingReply が false なので当たらない */
+export function isSilentAsk(value: { awaitingReply: boolean; reply: string | null; actions: readonly unknown[] }, replyText: string): boolean {
+  return value.awaitingReply && !replyText.trim() && !value.reply?.trim() && value.actions.length === 0;
+}
+
 export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, signal: AbortSignal): Promise<ThreadTurnResult> {
   const { thread, inbox, context } = claim;
   const role = thread.kind;
@@ -239,11 +247,15 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
   let parsed: ReturnType<typeof parseTurnOutput<typeof role>> | null = null;
   let resumedFresh = false;
   let restarts = 0;
+  let silent = false;
   for (let attempt = 0; ; attempt++) {
     const input =
       attempt === 0
         ? text
-        : `${buildTurnInput([{ tag: TURN_TAGS.runner, text: `直前の出力がスキーマに合わなかった（${clip(parsed && !parsed.ok ? parsed.error : (outcome?.result?.subtype ?? "失敗"), 400)}）。次の入力にもう一度、返事の文章と StructuredOutput で答えて。` }])}\n${text}`;
+        : silent
+          ? // 入力は同じセッションに届いている。頼み直しだけを送る（CEO の発言を二重にしない）
+            buildTurnInput([{ tag: TURN_TAGS.runner, text: SILENT_REPLY_RETRY }])
+          : `${buildTurnInput([{ tag: TURN_TAGS.runner, text: `直前の出力がスキーマに合わなかった（${clip(parsed && !parsed.ok ? parsed.error : (outcome?.result?.subtype ?? "失敗"), 400)}）。次の入力にもう一度、返事の文章と StructuredOutput で答えて。` }])}\n${text}`;
     if (attempt > 0) stream.reset();
     outcome = await session.turn(input, { author: hasCeo && attempt === 0 ? "ceo" : "runner", stream, signal, instructionId: turnInstructionId });
 
@@ -314,9 +326,11 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
       return "failed";
     }
     parsed = parseTurnOutput(role, outcome.structured);
-    if (!outcome.result.isError && parsed.ok) break;
+    silent = !outcome.result.isError && parsed.ok && isSilentAsk(parsed.value, outcome.replyText);
+    if (!outcome.result.isError && parsed.ok && !silent) break;
+    if (silent) ctx.log.warn("返事を待つのに本文が空でした。頼み直します", { threadId: thread.id, attempt });
     if (attempt >= ctx.config.limits.turnRetries) {
-      ctx.log.warn("ターンの出力が直りませんでした", { threadId: thread.id, error: parsed.ok ? outcome.result.subtype : parsed.error });
+      ctx.log.warn("ターンの出力が直りませんでした", { threadId: thread.id, error: silent ? "本文が空" : parsed.ok ? outcome.result.subtype : parsed.error });
       await failMessage(UI_TEXT_V2.conversation.failedReply);
       ctx.threads.idle(thread.id);
       await ctx.api.turnDone(thread.id, { consumedInboxIds: consumed, awaitingReply: false, ackMessageIds: [], sessionId, numTurns: outcome.result.numTurns });

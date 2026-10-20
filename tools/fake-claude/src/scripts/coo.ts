@@ -77,6 +77,13 @@ export function* cooScript(ctx: TurnContext): Script {
   let awaitingReply = false;
   const scenarioA = ctx.markers.has("scenario-a");
 
+  // 本物の Opus の揺れ: 返事を本文に書かず、awaitingReply だけを返す（1 回だけ）
+  if (ctx.markers.has("silent-ask") && ctx.session.flags.silentAsked !== true) {
+    ctx.session.flags.silentAsked = true;
+    yield { kind: "output", value: { reply: null, awaitingReply: true, actions: [] } satisfies CooTurn };
+    return;
+  }
+
   // リーダーの成果報告 → present（入力の版で）
   const workReports = linesOf(ctx, TURN_TAGS.leaderWorkReport);
   const leaderReports = linesOf(ctx, TURN_TAGS.leaderReport);
@@ -191,6 +198,9 @@ export function* cooScript(ctx: TurnContext): Script {
         brief: text,
       });
     }
+  } else if (linesOf(ctx, TURN_TAGS.runner).some((l) => /返事の本文が空/.test(l))) {
+    parts.push("ご依頼の中身をもう少し教えてください。");
+    awaitingReply = true;
   } else if (secretary && parts.length === 0) {
     // 秘書からの依頼では立てない・振らない（11.5）
     parts.push(`秘書から「${firstLineOf(secretary.text)}」と届きました。進めてよいか CEO に確かめます。`);
