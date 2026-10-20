@@ -101,10 +101,12 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
     return "skipped";
   }
 
-  // 依頼を受けたリーダーのターンが始まる: queued → running（4.4）
+  // 依頼を受けたリーダーのターンが始まる: queued → running（4.4）。
+  // 確認・完了の指示（COO の relay・差し戻し）は動かさない。やり直すならリーダーの plan が reopen する
   if (role === "leader") {
     for (const i of inbox) {
-      if (i.kind === "delegation" && i.instructionId) {
+      const st = i.instructionId ? context.openInstructions.find((o) => o.id === i.instructionId)?.status : undefined;
+      if (i.kind === "delegation" && i.instructionId && st !== "review" && st !== "done") {
         await ctx.api.patchInstruction(i.instructionId, { status: "running", phase: "leader" }).catch((err: unknown) => {
           if (!(err instanceof ConflictError)) ctx.log.warn("指示を running にできません", { instructionId: i.instructionId, error: errorMessage(err) });
         });
@@ -192,6 +194,8 @@ export async function runThreadTurn(ctx: RunnerContext, claim: ThreadClaim, sign
 
   try {
     if (!session) session = await launch(!rotate);
+    // 生きているプロセスで続けるターン: 前のターンの終わりに手すき（idle）にしたので running に戻す
+    else await ctx.api.patchSession(sessionId, { status: "running" }).catch(() => undefined);
   } catch (err) {
     ctx.log.error("スレッドのセッションを起動できません", { threadId: thread.id, error: errorMessage(err) });
     await ctx.api.releaseThread(thread.id, { reason: "error", notBefore: ctx.now() + 60_000, error: errorMessage(err) }).catch(() => undefined);

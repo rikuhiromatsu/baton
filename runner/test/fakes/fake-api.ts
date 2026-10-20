@@ -2,6 +2,8 @@
 import { randomUUID } from "node:crypto";
 import {
   COO_THREAD_ID,
+  canReopen,
+  canSystemTransition,
   type AgentSessionSummary,
   type AppendTranscriptInput,
   type AppendTranscriptItemInput,
@@ -411,9 +413,13 @@ export class FakeBatonApi implements BatonApi {
     const i = this.instructions.get(id);
     if (!i) throw new ConflictError("no instruction");
     if (patch.expectedRevision !== undefined && patch.expectedRevision !== i.revision) throw new StaleRevisionError("stale", { revision: i.revision });
-    if (patch.reopen) {
+    // Worker と同じ条件（routes/runner/instructions.ts）
+    if (patch.reopen || (patch.status === "running" && canReopen(i.status))) {
+      if (!canReopen(i.status)) throw new ConflictError("cannot reopen", { status: i.status });
       i.status = "running";
       i.approvedAt = null;
+    } else if (patch.status && patch.status !== i.status && !canSystemTransition(i.status, patch.status)) {
+      throw new ConflictError("transition not allowed", { status: i.status, to: patch.status });
     }
     if (patch.revisionBump) i.revision += 1;
     if (patch.status) i.status = patch.status;

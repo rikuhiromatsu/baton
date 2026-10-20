@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ClaimOutput, type ClaimOutput as ClaimOutputT, type Decision, type InstructionSummary } from "@baton/shared";
 import { sha256Hex } from "../../src/worker/lib/crypto.ts";
 import {
+  ORIGIN,
   browser,
   call,
   claim,
@@ -13,6 +14,7 @@ import {
   insertInstruction,
   login,
   membersInstruction,
+  openSocket,
   registerRunner,
   runner,
   runnerCreateInstruction,
@@ -160,6 +162,49 @@ describe("W11 lease を持たないランナーの書き込みは 409", () => {
     expect((await runner(holder, "/api/runner/threads/thread-coo/messages", { body: msg })).status).toBe(201);
     expect((await runner(holder, "/api/runner/threads/thread-coo/turn-done", { body: done })).status).toBe(204);
     expect((await runner(holder, "/api/runner/threads/thread-coo/turn-done", { body: done })).status).toBe(409);
+  });
+});
+
+describe("W9b スレッドのセッション・reopen", () => {
+  it("turn-done でスレッドのセッションが手すき（idle）になり、組織図の COO が実行中のまま残らない", async () => {
+    const s = await login();
+    const r = await registerRunner();
+    await clearWork();
+    await browser(s, "/api/threads/thread-coo/messages", { body: { clientId: crypto.randomUUID(), body: "やあ" } });
+    const c = await claimOut(r, ["thread"]);
+    if (c?.kind !== "thread") throw new Error("thread not claimed");
+    const sessionId = await createSession(r, { threadId: "thread-coo", instructionId: null, agentId: "agent-coo", role: "coo", projectId: null, taskId: null });
+    await runner(r, `/api/runner/sessions/${sessionId}`, { method: "PATCH", body: { status: "running", started: true } });
+    const socket = await openSocket("/api/ws", { Origin: ORIGIN, Cookie: s.cookie });
+    const done = { consumedInboxIds: c.inbox.map((i) => i.id), awaitingReply: false, ackMessageIds: [], sessionId, numTurns: 1 };
+    expect((await runner(r, "/api/runner/threads/thread-coo/turn-done", { body: done })).status).toBe(204);
+    // 開いている画面のセッションの表示も手すきに変わる
+    await socket.waitFor((e) => e.t === "session.upserted" && e.session.id === sessionId && e.session.status === "idle");
+    socket.close();
+    const sess = await env.DB.prepare("SELECT status, turns FROM agent_sessions WHERE id = ?").bind(sessionId).first();
+    expect(sess).toEqual({ status: "idle", turns: 1 });
+    const org = (await (await browser(s, "/api/org")).json()) as { coo: { state: string } };
+    expect(org.coo.state).toBe("idle");
+  });
+
+  it("確認の指示を status: running で動かすと reopen として記録し、completed_at を消す", async () => {
+    const r = await registerRunner();
+    await clearWork();
+    const { project } = await createProject(r);
+    const inst = await runnerCreateInstruction(r, project.id);
+    for (const status of ["running", "review"]) {
+      expect((await runner(r, `/api/runner/instructions/${inst.id}`, { method: "PATCH", body: { status } })).status).toBe(200);
+    }
+    await env.DB.prepare("UPDATE instructions SET completed_at = 1 WHERE id = ?").bind(inst.id).run();
+    expect((await runner(r, `/api/runner/instructions/${inst.id}`, { method: "PATCH", body: { status: "running", phase: "members" } })).status).toBe(200);
+    const row = await env.DB.prepare("SELECT status, completed_at FROM instructions WHERE id = ?").bind(inst.id).first();
+    expect(row).toEqual({ status: "running", completed_at: null });
+    const t = await env.DB.prepare("SELECT action FROM status_transitions WHERE instruction_id = ? AND from_status = 'review' AND to_status = 'running'").bind(inst.id).first<{ action: string }>();
+    expect(t?.action).toBe("reopen");
+    // すでに running なら reopen は 409（ランナーは status を見て計画を続ける）
+    const again = await runner(r, `/api/runner/instructions/${inst.id}`, { method: "PATCH", body: { reopen: true } });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: { details: { status: string } } }).error.details.status).toBe("running");
   });
 });
 

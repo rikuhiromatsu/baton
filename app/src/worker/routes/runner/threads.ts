@@ -17,7 +17,7 @@ import {
   type ServerEvent,
 } from "@baton/shared";
 import { createProjectWithTeam } from "../../db/projects.ts";
-import { toMessage, type InboxRow, type MessageRow, type ThreadRow } from "../../db/rows.ts";
+import { toAgentSession, toMessage, type AgentSessionRow, type InboxRow, type MessageRow, type ThreadRow } from "../../db/rows.ts";
 import { getMessage, getMessageRow, inboxInsertStatements, messageInsertStatements, requireThread } from "../../db/threads.ts";
 import { afterMessages, instructionEvents, isNotifiable, messageEvent, notifyRunners, projectEvents, publish, threadEvents } from "../../hub/broadcast.ts";
 import { parseObject } from "../../lib/json.ts";
@@ -214,6 +214,11 @@ runnerThreadRoutes.post("/threads/:id/turn-done", async (c) => {
   if (input.numTurns > 0) {
     stmts.push(db.prepare(`UPDATE agent_sessions SET turns = turns + ?, updated_at = ? WHERE id = ? AND thread_id = ? AND ${held}`).bind(input.numTurns, now, input.sessionId, thread.id));
   }
+  // ターンが終わったスレッドのセッションは手すき（組織図・サイドパネルで「実行中」のまま残さない。次のターンはスレッドの running で表す）
+  const idleAt = stmts.length;
+  stmts.push(
+    db.prepare(`UPDATE agent_sessions SET status = 'idle', updated_at = ? WHERE id = ? AND thread_id = ? AND status = 'running' AND ${held}`).bind(now, input.sessionId, thread.id),
+  );
   stmts.push(
     db
       .prepare(
@@ -227,6 +232,10 @@ runnerThreadRoutes.post("/threads/:id/turn-done", async (c) => {
   if (results[results.length - 1]?.meta.changes !== 1) throw conflict("thread lease not held");
   const after = (await db.prepare("SELECT * FROM threads WHERE id = ?").bind(thread.id).first<ThreadRow>())!;
   const events: ServerEvent[] = [];
+  if (results[idleAt]?.meta.changes === 1) {
+    const session = await db.prepare("SELECT * FROM agent_sessions WHERE id = ?").bind(input.sessionId).first<AgentSessionRow>();
+    if (session) events.push({ t: "session.upserted", session: toAgentSession(session) });
+  }
   for (const id of input.ackMessageIds) {
     const m = await getMessage(db, id);
     if (m) events.push(messageEvent(m));

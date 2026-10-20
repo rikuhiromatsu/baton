@@ -97,7 +97,8 @@ runnerInstructionRoutes.patch("/instructions/:id", async (c) => {
   }
   let to: InstructionStatus | null = null;
   let action = "report";
-  if (input.reopen) {
+  // 確認・完了 → running は、status で来ても reopen として扱う（completed_at を消し、遷移に reopen と残す）
+  if (input.reopen || (input.status === "running" && canReopen(row.status))) {
     if (!canReopen(row.status)) throw conflict("cannot reopen", { status: row.status });
     to = "running";
     action = "reopen";

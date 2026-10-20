@@ -10,7 +10,7 @@ import {
   type ThreadTurnContext,
 } from "@baton/shared";
 import type { RunnerContext } from "../context.ts";
-import { StaleRevisionError, errorMessage } from "../errors.ts";
+import { ConflictError, StaleRevisionError, errorMessage } from "../errors.ts";
 import { projectRepo } from "../git/workspaces.ts";
 import type { ThreadClaim } from "./thread.ts";
 import { clip, leaderThreadIdOf } from "./common.ts";
@@ -213,7 +213,11 @@ export async function executeLeaderActions(
             });
             instructionId = created.id;
           } else if (open && (open.status === "review" || open.status === "done")) {
-            await ctx.api.patchInstruction(instructionId, { reopen: true, ...(action.newTitle ? { title: action.newTitle } : {}) });
+            await ctx.api.patchInstruction(instructionId, { reopen: true, ...(action.newTitle ? { title: action.newTitle } : {}) }).catch((err: unknown) => {
+              // ターンの文脈より後に、もう running になっていた（同じ時刻の別のターンなど）: そのまま計画を入れる
+              if (err instanceof ConflictError && (err.details as { status?: string } | undefined)?.status === "running") return;
+              throw err;
+            });
           }
           const st = await ctx.state.instruction(instructionId);
           const round = Math.min(ctx.config.limits.maxRounds, Math.max(1, st.round + 1));
