@@ -675,6 +675,10 @@
   font-size: 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* ヒアドキュメントで台本ごと書くような長いコマンドでも、許可・拒否のボタンを押し出さない（中だけスクロール） */
+  max-height: 12.5em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .approval-card__question {
   margin: 8px 0 0;
@@ -718,6 +722,7 @@
 }
 .approval-card--compact .approval-card__command {
   font-size: 12px;
+  max-height: 5em;
 }
 
 /* ───────────── 差分 ───────────── */
