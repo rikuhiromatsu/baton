@@ -306,5 +306,10 @@ export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 /** 中断したときに claude が書く user の文（実物） */
 export const INTERRUPTED_USER_TEXT = "[Request interrupted by user]";
 
+/** 中断の文か（道具の承認の途中で中断すると「… for tool use」が付く。本番で確認） */
+export function isInterruptedUserText(text: string): boolean {
+  return /^\[Request interrupted by user(?: for tool use)?\]$/.test(text.trim());
+}
+
 /** サブスクの枠切れの文（-p では result の本文。1.4） */
 export const LIMIT_HIT_PATTERN = /You've hit your (session|weekly|[a-z ]+) limit/i;

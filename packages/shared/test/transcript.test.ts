@@ -9,6 +9,7 @@ import {
   canStartMemberSession,
   canStartThreadTurn,
   initialNormalizeState,
+  isInterruptedUserText,
   normalizeStreamLine,
   normalizeStreamLines,
   parseStreamLine,
@@ -152,6 +153,15 @@ describe("S5 normalizeStreamLine（transcript.ts）", () => {
     const t = normalizeStreamLines(lines("tools")).sessions.find((s) => s.kind === "init")!;
     const r = normalizeStreamLines(lines("resume")).sessions.find((s) => s.kind === "init")!;
     expect(r.sessionId).toBe(t.sessionId);
+  });
+
+  it("中断の文は「… for tool use」の形でも中断の印にする（CEO の発言として出さない。本番で確認）", () => {
+    for (const text of ["[Request interrupted by user]", "[Request interrupted by user for tool use]"]) {
+      const line = JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: "s", uuid: "u" });
+      const r = normalizeStreamLine(line, initialNormalizeState(CWD));
+      expect(r.items.map((i) => [i.kind, i.summary])).toEqual([["system", "中断"]]);
+    }
+    expect(isInterruptedUserText("[Request interrupted by user] だけではない")).toBe(false);
   });
 
   it("承認: can_use_tool の control、許可・拒否のあとの結果、interrupt の応答と中断", () => {

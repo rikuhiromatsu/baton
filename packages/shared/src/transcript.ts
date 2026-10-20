@@ -2,7 +2,7 @@
 // normalizeStreamLine(line, state) → { state, items, session?, quota?, control?, delta?, activity? }。純粋関数（state は新しいものを返す）。
 // 項目（TranscriptDraft）の seq・id・時刻はランナーが付ける。道具の要約は日本語の固定動詞（D-59）。
 import {
-  INTERRUPTED_USER_TEXT,
+  isInterruptedUserText,
   LIMIT_HIT_PATTERN,
   STRUCTURED_OUTPUT_TOOL,
   parseStreamLine,
@@ -472,7 +472,7 @@ export function normalizeStreamMessage(msg: ClaudeStreamMessage, prev: Normalize
       const parent = v.parent_tool_use_id ?? null;
       const content = v.message.content;
       if (typeof content === "string") {
-        if (content.trim() === INTERRUPTED_USER_TEXT) return { state, items: [runnerEventItem("中断")], activity: null };
+        if (isInterruptedUserText(content)) return { state, items: [runnerEventItem("中断")], activity: null };
         return { state, items: [userInputItem(content, "runner")] };
       }
       const items: TranscriptDraft[] = [];
@@ -483,7 +483,7 @@ export function normalizeStreamMessage(msg: ClaudeStreamMessage, prev: Normalize
           if (it) items.push(it);
         } else if (b.type === "text") {
           const text = s(b.text);
-          if (text.trim() === INTERRUPTED_USER_TEXT) items.push(runnerEventItem("中断"));
+          if (isInterruptedUserText(text)) items.push(runnerEventItem("中断"));
           else if (text.trim()) items.push(userInputItem(text, "runner"));
         }
       }
