@@ -19,7 +19,7 @@
     "test:unit": "vitest run",
     "test:e2e": "npm test -w e2e",
     "build": "npm run build -w app",
-    "deploy": "npm run build && node scripts/assert-no-test-routes.mjs && npm run db:migrate:remote -w app && npm run deploy -w app && node scripts/smoke-prod.mjs",
+    "deploy": "npm run build && rm -f app/dist/baton/.dev.vars app/dist/baton/.dev.vars.* && node scripts/assert-no-test-routes.mjs && npm run db:migrate:remote -w app && npm run deploy -w app && node scripts/smoke-prod.mjs",
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "claude:probe": "node scripts/claude-probe.mjs"
   },
