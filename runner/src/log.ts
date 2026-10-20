@@ -17,7 +17,8 @@ function redact(data: Record<string, unknown> | undefined): Record<string, unkno
   if (!data) return data;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
-    out[k] = /token|authorization|secret|api_?key/i.test(k) ? "[redacted]" : v;
+    // apiKeySource・keySource は出どころの名前（none / env / settings）で秘密ではない。init の検査（7.7）をログで確かめるために残す
+    out[k] = /token|authorization|secret|api_?key/i.test(k) && !/^(apiKeySource|keySource)$/.test(k) ? "[redacted]" : v;
   }
   return out;
 }
