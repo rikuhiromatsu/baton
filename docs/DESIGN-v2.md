@@ -703,13 +703,17 @@ AskUserQuestion Agent Task ExitPlanMode EnterPlanMode EnterWorktree ExitWorktree
     "filesystem": {
       "allowWrite": ["~/.npm", "~/Library/Caches/pip", "~/.cache/uv"],
       "denyWrite": ["…リーダーだけ…"],
-      "denyRead": ["~/.ssh", "~/.aws", "~/.config", "~/.claude", "~/.codex", "~/.netrc", "~/.npmrc", "~/Library/Keychains", "~/Library/Mobile Documents"]
+      "denyRead": ["~/.ssh", "~/.aws", "~/.config", "~/.claude", "~/.claude.json", "~/.codex", "~/.netrc", "~/.npmrc", "~/.gnupg", "~/.git-credentials",
+                   "~/Library/Keychains", "~/Library/Mobile Documents",
+                   "//**/.env", "//**/.env.*", "//**/.dev.vars", "//**/.dev.vars.*", "//**/*.key", "/<~/projects の絶対パス>/**/*.pem"]
     },
     "network": { "strictAllowlist": true, "allowedDomains": ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"] }
   }
 }
 ```
 
+- `denyRead` は Read の拒否と同じ秘密を Bash（`python3`・`node` など）からも塞ぐ（D-118）。`//` 始まりは絶対パスで、macOS の Seatbelt ではグロブが正規表現になる。`*.pem` だけはどこでもではなく `~/projects` の中だけ（CA の束を読めないと pip などが壊れる）。
+- ランナーが worktree の中のファイルを読むとき（成果物・`/files`・CLAUDE.md）は、リンクを辿らずに開く（D-120）。
 - `github.com` は許可ドメインに入れない（push の経路を塞ぐ）。追加は `BATON_EXTRA_ALLOWED_DOMAINS` / `BATON_EXTRA_BASH_ALLOW`（足したら決定ログへ）。
 - V3 の最初の作業として、`~/baton-data/worktrees/…` の中で「cwd 外への `touch` が止まる」「`curl` が止まる」「`npm ci` が通る」「リーダーで `--add-dir` 先への `touch` が止まる」を実物で確かめて記録する（1.3 の試しは一時フォルダの中だった）。
 
@@ -1054,7 +1058,7 @@ v1 の「プッシュ通知はやらない」を撤回する（D-81）。目的�
 
 ### 11.6 レート制限と監査
 
-- トークンごとに 60 回／分（Hub のメモリで数える）。`baton_send_to_coo` は 10 秒に 1 回・1 日 50 回、`baton_propose_answer` は 1 日 50 回（`bot_audit_log` で数える）。超えたら MCP はエラー（`-32029`、`retryAfter` 秒）、HTTP は 429。
+- トークンごとに 60 回／分（Hub のメモリで数える）。`baton_send_to_coo` は 10 秒に 1 回・1 日 50 回、`baton_propose_answer` は 1 日 50 回（`bot_rate_slots` に 1 文の条件付き INSERT で枠を予約して数える。D-119）。超えたら MCP はエラー（`-32029`、`retryAfter` 秒）、HTTP は 429。
 - 監査: すべての呼び出し（読み取りも）を `bot_audit_log` に残す（道具・対象・引数の要約・結果）。90 日で消す（`GET /api/session` のついでに 1% の確率で掃除、v1 のセッションの掃除と同じ流儀）。設定の `秘書` で一覧と `失効`。
 - トークンを失効したら、次の呼び出しから 401。
 
@@ -1705,6 +1709,9 @@ flowchart LR
 | D-115 | （V1）推定額: メンバーのセッションの `costUsdDelta` は指示の合計にも足す。スレッドのターンの分はランナーが指示の `PATCH` の `costUsdDelta` で足す | 1 指示 30 USD の上限（5.8）を Worker 側でも見えるように | 全部ランナーが指示に足す |
 | D-116 | （V1）空の発言の削除（`PATCH …/messages/:mid` の `delete`）は、画面に `message.upserted`（`status: "canceled"`・本文空・`ref.deleted: true`）で知らせる | イベントに削除が無い（12.5）。画面は `ref.deleted` で消す | 削除のイベントを足す（契約の変更） |
 | D-117 | （V1）`thread.updated` の未読は、配信では最初の利用者（個人用）で数える。ブラウザの `GET /api/threads` は本人で数える | イベントは全ブラウザに同じものを配る | 利用者ごとに配り分ける |
+| D-118 | サンドボックスの `denyRead` に Read の拒否と同じ秘密を入れる: ホームの置き場所（`~/.ssh`・`~/.aws`・`~/.config`・`~/.claude`・`~/.claude.json`・`~/.codex`・`~/.netrc`・`~/.npmrc`・`~/.gnupg`・`~/.git-credentials`・`~/Library/Keychains`・`~/Library/Mobile Documents`）は丸ごと、`.env`・`.env.*`・`.dev.vars`・`.dev.vars.*`・`*.key` はどこでも（`//**/…`）、`*.pem` は `~/projects`（`BATON_PROJECTS_ROOT`）の中だけ。本物の `claude` 2.1.303 のメンバーの起動引数で、python3 から worktree の `.env`・本体の `.env`・`~/.claude.json` が読めない（PermissionError）ことを確かめた | Read だけの拒否は Bash の `python3`・`node` で迂回できる（Codex 指摘 high）。Claude Code の sandbox は macOS でグロブを Seatbelt の正規表現にする（実物で確認） | `*.pem` もどこでも拒否（certifi の `cacert.pem`・`/etc/ssl/cert.pem` が読めず pip・uv が壊れる）、worktree から `.env` を消す（本体の `.env` は残る。Seatbelt で塞ぐ方が漏れが無い） |
+| D-119 | 秘書 bot の送信枠は `bot_rate_slots`（0003）に、間隔と日次件数の判定と予約を 1 文の `INSERT … SELECT … WHERE` で行い、`changes` で判定する。同じ `requestId` は 1 行（再消費しない）。予約後に送信が失敗しても行は残す（数える）。回答案の日次上限も同じ表で数える | 成功の監査ログを SELECT してから別々に INSERT すると、並行した呼び出しで 10 秒・50 件を超えられる（Codex 指摘 medium） | 監査ログで数え続ける（判定と記録が別の文）、Durable Object で直列にする（Hub の DO に責務が増える） |
+| D-120 | ランナーが worktree・作業場所の中のファイルを読むとき（成果物の登録、tailnet の `/files`、CLAUDE.md・AGENTS.md）は `openFileInside` で開く: 字句上のパスにリンクがあれば拒否（CLAUDE.md だけは中を指すリンクを許す）、realpath が作業場所の実体の配下、`O_NOFOLLOW` で開き、開いた後の fstat が通常のファイルでリンク数 1、開いた後の realpath・stat が同じ dev・ino。差分・統合は git がリンクをリンクとして扱うので中身は出ない | メンバーは worktree に秘密へのリンクを置いて成果物として返せ、ランナーは Seatbelt の外で読む（Codex 指摘 critical） | realpath の確認だけ（確かめてから開くまでに親ディレクトリを差し替えられる）、リンクを含む成果物も中を指すなら許す（意味が無く、確かめる場所が増える） |
 
 v1 の決定で v2 でも有効なもの: D-1〜D-3、D-5〜D-9、D-13（Baton 専用に限る。D-51）、D-14〜D-16、D-19〜D-26、D-28〜D-33、D-35、D-36、D-38、D-39。覆したもの: D-4・D-10・D-11・D-12・D-17・D-18・D-27・D-34・D-37、v1 の「プッシュ通知をやらない」。
 

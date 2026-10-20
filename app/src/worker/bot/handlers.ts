@@ -242,19 +242,53 @@ const readCooThread: Handler<"baton_read_coo_thread"> = async ({ env }, input) =
   return { summary: `COO との会話 ${items.length} 件（新しい順）`, data: { items } };
 };
 
+/**
+ * トークンごとの枠を原子的に予約する（11.6・D-119）。間隔と日次件数を満たすときだけ、1 文の条件付き INSERT で行を入れる。
+ * 判定と予約が 1 文なので、並行した呼び出しでも上限を超えない。同じ requestId は枠を再消費しない（"duplicate"）。
+ * 予約した行は送信が失敗しても消さない（件数に数える）。
+ */
+async function reserveSlot(
+  db: D1Database,
+  input: { tokenId: string; action: string; requestId: string; now: number; intervalMs: number; perDay: number; dailyMessage: string },
+): Promise<"reserved" | "duplicate"> {
+  const { tokenId, action, requestId, now, intervalMs, perDay } = input;
+  const r = await db
+    .prepare(
+      `INSERT INTO bot_rate_slots (token_id, action, request_id, created_at)
+       SELECT ?1, ?2, ?3, ?4
+        WHERE NOT EXISTS (SELECT 1 FROM bot_rate_slots WHERE token_id = ?1 AND action = ?2 AND request_id = ?3)
+          AND (?5 <= 0 OR NOT EXISTS (SELECT 1 FROM bot_rate_slots WHERE token_id = ?1 AND action = ?2 AND created_at > ?4 - ?5))
+          AND (SELECT count(*) FROM bot_rate_slots WHERE token_id = ?1 AND action = ?2 AND created_at > ?4 - ?6) < ?7`,
+    )
+    .bind(tokenId, action, requestId, now, intervalMs, DAY_MS, perDay)
+    .run();
+  if ((r.meta.changes ?? 0) === 1) return "reserved";
+  // 入らなかった理由を調べる（ここは判定ではなく、返すメッセージと retryAfter のため）
+  const dup = await db.prepare("SELECT 1 AS x FROM bot_rate_slots WHERE token_id = ? AND action = ? AND request_id = ?").bind(tokenId, action, requestId).first();
+  if (dup) return "duplicate";
+  const st = await db
+    .prepare("SELECT count(*) AS n, max(created_at) AS last FROM bot_rate_slots WHERE token_id = ? AND action = ? AND created_at > ?")
+    .bind(tokenId, action, now - DAY_MS)
+    .first<{ n: number; last: number | null }>();
+  if ((st?.n ?? 0) >= perDay) throw new ToolError("rate_limited", input.dailyMessage, Math.ceil(DAY_MS / 1000));
+  const last = st?.last ?? now;
+  throw new ToolError("rate_limited", "続けて送るには少し待ってください", Math.max(1, Math.ceil((last + intervalMs - now) / 1000)));
+}
+
 const sendToCoo: Handler<"baton_send_to_coo"> = async ({ env, token, now }, input) => {
   const db = env.DB;
-  // 同じ requestId の送り直しは制限に数えない（冪等）
+  // 同じ requestId の送り直しは制限に数えない（冪等）。届け済みなら予約もしない
   const dup = await db.prepare("SELECT id FROM thread_messages WHERE client_id = ?").bind(`bot:${token.id}:${input.requestId}`).first();
   if (!dup) {
-    const sent = await db
-      .prepare("SELECT count(*) AS n, max(created_at) AS last FROM bot_audit_log WHERE token_id = ? AND action = 'baton_send_to_coo' AND outcome = 'ok' AND created_at > ?")
-      .bind(token.id, now - DAY_MS)
-      .first<{ n: number; last: number | null }>();
-    if ((sent?.n ?? 0) >= LIMITS.botSendsPerDay) throw new ToolError("rate_limited", "1 日に送れる数を超えました", Math.ceil(DAY_MS / 1000));
-    if (sent?.last && now - sent.last < LIMITS.botSendIntervalMs) {
-      throw new ToolError("rate_limited", "続けて送るには少し待ってください", Math.ceil((sent.last + LIMITS.botSendIntervalMs - now) / 1000));
-    }
+    await reserveSlot(db, {
+      tokenId: token.id,
+      action: "baton_send_to_coo",
+      requestId: input.requestId,
+      now,
+      intervalMs: LIMITS.botSendIntervalMs,
+      perDay: LIMITS.botSendsPerDay,
+      dailyMessage: "1 日に送れる数を超えました",
+    });
   }
   let posted;
   try {
@@ -269,13 +303,18 @@ const sendToCoo: Handler<"baton_send_to_coo"> = async ({ env, token, now }, inpu
 
 const proposeAnswer: Handler<"baton_propose_answer"> = async ({ env, token, now }, input) => {
   const db = env.DB;
-  const count = await db
-    .prepare("SELECT count(*) AS n FROM bot_audit_log WHERE token_id = ? AND action = 'baton_propose_answer' AND outcome = 'ok' AND created_at > ?")
-    .bind(token.id, now - DAY_MS)
-    .first<{ n: number }>();
-  if ((count?.n ?? 0) >= LIMITS.botProposalsPerDay) throw new ToolError("rate_limited", "1 日に出せる回答案の数を超えました", Math.ceil(DAY_MS / 1000));
   const d = await db.prepare("SELECT * FROM decisions WHERE id = ?").bind(input.targetId).first<DecisionRow>();
   if (!d || d.status !== "open") throw new ToolError("not_found", "開いている承認・判断が見つかりません");
+  // 日次の上限も送信と同じく原子的に予約する（並行した呼び出しで 50 件を超えない。D-119）
+  await reserveSlot(db, {
+    tokenId: token.id,
+    action: "baton_propose_answer",
+    requestId: newId(),
+    now,
+    intervalMs: 0,
+    perDay: LIMITS.botProposalsPerDay,
+    dailyMessage: "1 日に出せる回答案の数を超えました",
+  });
   // 回答案を添えるだけ。決定はしない（CEO が許可・拒否を押すまで何も起きない。11.5）
   await db
     .prepare("UPDATE decisions SET suggestion = ?, suggestion_verdict = ?, suggestion_at = ? WHERE id = ? AND status = 'open'")

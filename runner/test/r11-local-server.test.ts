@@ -1,5 +1,5 @@
 // R11 tailnet HTTP: Tailscale-User-Login 無し・許可外は 403、/files のパス脱出を拒否、CORS ヘッダ。
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -71,6 +71,9 @@ describe("R11 tailnet 向けのローカル HTTP", () => {
     await writeFile(path.join(dir, "projects/demo/.secret"), "x");
     await writeFile(path.join(dir, "outside.txt"), "outside");
     await symlink(path.join(dir, "outside.txt"), path.join(dir, "projects/demo/link.txt"));
+    // 外のディレクトリへのリンク・ハードリンク（Codex 指摘 critical）
+    await symlink(dir, path.join(dir, "projects/demo/linkdir"));
+    await link(path.join(dir, "outside.txt"), path.join(dir, "projects/demo/hard.txt"));
   });
   afterEach(async () => {
     server?.closeAllConnections();
@@ -109,6 +112,8 @@ describe("R11 tailnet 向けのローカル HTTP", () => {
       "/files/demo/%2E%2E/%2E%2E/outside.txt",
       "/files/demo/docs%2F..%2F..%2F..%2Foutside.txt",
       "/files/demo/link.txt",
+      "/files/demo/linkdir/outside.txt",
+      "/files/demo/hard.txt",
       "/files/demo/.baton/history/x",
       "/files/demo/%2Fetc%2Fpasswd",
     ]) {

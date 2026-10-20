@@ -2,7 +2,6 @@
 // 依存が満たされたタスクからメンバーのセッションを起動（指示内 2 並列）。タスクごとに worktree、done のたびにコミットして統合用へマージ。
 // ラウンドが全部終わったら差分・Codex レビュー（6.4）を添えてリーダーの受信箱に member_results。
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   TURN_TAGS,
@@ -25,6 +24,7 @@ import { ConflictError, LimitError, StopSignal, errorMessage } from "../errors.t
 import { commitAll, diffSince, headSha, mergeBranch, mergeWithMarkers, removeWorktree } from "../git/git.ts";
 import { createTaskWorktree, ensureIntegration, relInside, restoreWorktree, taskWorktreeName } from "../git/workspaces.ts";
 import { dataPaths } from "../config.ts";
+import { readFileInside } from "../lib/files.ts";
 import { CONFLICT_SPEC_PREFIX } from "./actions.ts";
 import { runCodexReview } from "./codex.ts";
 import { clip, leaderThreadIdOf, roleSetup } from "./common.ts";
@@ -630,10 +630,13 @@ async function finishDone(
   for (const a of input.artifacts.slice(0, 10)) {
     const rel = relInside(ws.worktreePath, a.path.startsWith("/") ? path.relative(ws.worktreePath, a.path) : a.path);
     if (!rel) continue;
-    const abs = path.join(ws.worktreePath, rel);
-    const st = await stat(abs).catch(() => null);
-    if (!st?.isFile()) continue;
-    const buf = await readFile(abs);
+    // リンクを辿らずに開く（worktree の外の秘密をランナーに読ませない。Codex 指摘 critical）
+    const opened = await readFileInside(ws.worktreePath, rel).catch((err: unknown) => {
+      ctx.log.warn("成果物を開けません", { path: rel, error: errorMessage(err) });
+      return null;
+    });
+    if (!opened) continue;
+    const { buf, st } = opened;
     const text = buf.subarray(0, 65_536).toString("utf8");
     const isText = !text.includes("\u0000");
     await ctx.api

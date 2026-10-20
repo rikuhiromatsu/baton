@@ -7,7 +7,6 @@
 //   GET /files/:slug/*          作業フォルダのファイル本体（読み取り専用、inline）
 // 認証: Tailscale-User-Login が ALLOWED_TAILNET_LOGINS に無ければ 403（BATON_LOCAL_AUTH=off のときだけ省く。e2e 用）。
 // CORS: BATON_ALLOWED_ORIGINS（既定は本番と localhost:8790）の GET のみ。
-import { createReadStream } from "node:fs";
 import { stat, statfs } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -15,8 +14,8 @@ import { ProjectSlugSchema } from "@baton/shared";
 import { workspaceDir, type RunnerConfig } from "./config.ts";
 import type { Workspace } from "@baton/shared";
 import { runGit } from "./git/git.ts";
-import { NotFoundError, listWorkspace, mimeFor } from "./lib/files.ts";
-import { PathGuardError, resolveInWorkspace } from "./lib/path-guard.ts";
+import { NotFoundError, listWorkspace, mimeFor, openFileInside } from "./lib/files.ts";
+import { PathGuardError } from "./lib/path-guard.ts";
 import type { LiveLog, Logger } from "./log.ts";
 
 export type LocalStatus = {
@@ -199,12 +198,9 @@ export function createLocalServer(deps: LocalServerDeps): http.Server {
             sendJson(res, 200, { slug, path: rel, entries, truncated }, cors);
             return;
           }
-          const p = await resolveInWorkspace(root, rel);
-          const st = p.exists ? await stat(p.abs) : null;
-          if (!st?.isFile()) {
-            sendJson(res, 404, { error: { code: "not_found", message: "not found" } }, cors);
-            return;
-          }
+          // リンクを辿らずに開き、開いたものを返す（確かめた後の差し替えを防ぐ。Codex 指摘 critical）
+          const { fh, st, rel: relPath } = await openFileInside(root, rel);
+          const p = { rel: relPath };
           const mime = mimeFor(p.rel);
           const name = p.rel.split("/").pop() ?? "file";
           res.writeHead(200, {
@@ -218,10 +214,20 @@ export function createLocalServer(deps: LocalServerDeps): http.Server {
             "cache-control": "no-store",
           });
           if (method === "HEAD") {
+            await fh.close().catch(() => undefined);
             res.end();
             return;
           }
-          createReadStream(p.abs).pipe(res);
+          if (st.size === 0) {
+            await fh.close().catch(() => undefined);
+            res.end();
+            return;
+          }
+          // 開いた時の大きさまでだけ送る（content-length と合わせる）
+          const stream = fh.createReadStream({ start: 0, end: st.size - 1, autoClose: true });
+          stream.on("error", () => res.destroy());
+          res.on("close", () => stream.destroy());
+          stream.pipe(res);
           return;
         }
 

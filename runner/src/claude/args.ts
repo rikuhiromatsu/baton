@@ -10,8 +10,8 @@ import {
   ROLE_TOOLS,
   SANDBOX_ALLOWED_DOMAINS,
   SANDBOX_ALLOW_WRITE,
-  SANDBOX_DENY_READ,
   memberEditRule,
+  sandboxDenyRead,
   type ClaudeRole,
 } from "./permissions.ts";
 
@@ -53,7 +53,7 @@ export type SandboxSettings = {
 };
 
 /** settings.json の中身（7.2）。COO は Bash が無いのでサンドボックスを付けない */
-export function buildSettings(input: { role: ClaudeRole; denyWrite?: string[]; extraDomains?: string[] }): SandboxSettings {
+export function buildSettings(input: { role: ClaudeRole; denyWrite?: string[]; extraDomains?: string[]; projectsRoot?: string | null }): SandboxSettings {
   const base: SandboxSettings = { disableAllHooks: true, permissions: { deny: [...COMMON_DENY] } };
   if (input.role === "coo") return base;
   return {
@@ -66,7 +66,7 @@ export function buildSettings(input: { role: ClaudeRole; denyWrite?: string[]; e
       filesystem: {
         allowWrite: input.role === "member" ? [...SANDBOX_ALLOW_WRITE] : [],
         denyWrite: input.role === "leader" ? [...(input.denyWrite ?? [])] : [],
-        denyRead: [...SANDBOX_DENY_READ],
+        denyRead: sandboxDenyRead(input.projectsRoot ?? null),
       },
       network: {
         strictAllowlist: true,

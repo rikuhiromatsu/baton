@@ -98,6 +98,29 @@ describe("R1' 起動引数", () => {
     expect(buildSettings({ role: "coo" }).sandbox).toBeUndefined();
   });
 
+  it("サンドボックスの読み取り拒否に Read の拒否と同じ秘密の型が入る（Bash からの迂回を防ぐ。D-118）", () => {
+    const s = buildSettings({ role: "member", projectsRoot: "/Users/r/projects/" });
+    const denyRead = s.sandbox!.filesystem.denyRead;
+    for (const p of ["~/.ssh", "~/.aws", "~/.config", "~/.claude", "~/.claude.json", "~/.netrc", "~/.npmrc", "~/Library/Keychains", "//**/.env", "//**/.env.*", "//**/.dev.vars", "//**/.dev.vars.*", "//**/*.key"]) {
+      expect(denyRead, p).toContain(p);
+    }
+    expect(denyRead).toContain("//Users/r/projects/**/*.pem");
+    // CA の束を壊さないため、*.pem はどこでもではない
+    expect(denyRead).not.toContain("//**/*.pem");
+    expect(buildSettings({ role: "leader" }).sandbox!.filesystem.denyRead).toContain("//**/.env");
+    // Read の拒否にある秘密は、すべてサンドボックスでも拒否している（ホームの置き場所・型）
+    const readDeny = s.permissions.deny.filter((d) => d.startsWith("Read(")).map((d) => d.slice(5, -1).replace(/\/\*\*$/, ""));
+    for (const r of readDeny) {
+      const sb = r.startsWith("**/") ? `//${r}` : r;
+      if (r === "**/*.pem") continue;
+      if (r === "**/.dev.vars*") {
+        expect(denyRead).toContain("//**/.dev.vars");
+        continue;
+      }
+      expect(denyRead, r).toContain(sb);
+    }
+  });
+
   it("子の環境は許可リスト（ANTHROPIC_*・BATON_RUNNER_TOKEN・GH_TOKEN は渡らない。FAKE_* だけ通す）", () => {
     const e = childEnv({ home: "/Users/x", passthrough: { ANTHROPIC_API_KEY: "sk", BATON_RUNNER_TOKEN: "t", GH_TOKEN: "g", CLAUDE_CODE_USE_BEDROCK: "1", FAKE_CLAUDE_STEP_MS: "0", PATH: "/evil" } });
     expect(Object.keys(e).sort()).toEqual(

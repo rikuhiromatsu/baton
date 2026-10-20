@@ -116,7 +116,12 @@ export class AgentSession {
     const o = this.opts;
     const runDir = dataPaths(config).runSession(o.sessionId);
     const settingsPath = path.join(runDir, "settings.json");
-    await writeSettings(settingsPath, buildSettings({ role: o.role, denyWrite: o.denyWrite, extraDomains: [...(o.extraDomains ?? []), ...(o.profile.extraDomains ?? []), ...config.extraAllowedDomains] }));
+    await writeSettings(settingsPath, buildSettings({
+        role: o.role,
+        denyWrite: o.denyWrite,
+        extraDomains: [...(o.extraDomains ?? []), ...(o.profile.extraDomains ?? []), ...config.extraAllowedDomains],
+        projectsRoot: config.projectsScanRoot,
+      }),);
     const pluginDir = o.role === "member" ? await buildPluginDir(config, o.profileId, o.profile) : null;
     const spec: LaunchSpec = {
       role: o.role,

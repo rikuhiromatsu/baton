@@ -5,6 +5,7 @@
 // - CEO の好み: ~/.claude/CLAUDE.md の「## 見出し」単位で includeSections の本文を取り込む（起動のたびに読み直す）
 import { cp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readFileInside } from "../lib/files.ts";
 import { z } from "zod";
 import { PROFILE_IDS, type ProfileView } from "@baton/shared";
 import { dataPaths, expandHome, type RunnerConfig } from "../config.ts";
@@ -268,10 +269,10 @@ export async function repoRulesText(repoDir: string | null): Promise<string> {
   if (!repoDir) return "";
   const parts: string[] = [];
   for (const name of ["CLAUDE.md", "AGENTS.md"]) {
-    const p = path.join(repoDir, name);
-    const st = await stat(p).catch(() => null);
-    if (!st?.isFile()) continue;
-    const text = await readFile(p, "utf8").catch(() => "");
+    // worktree の中のファイルはメンバーが差し替えられる。リンクを辿らずに読む（Codex 指摘 critical）
+    const text = await readFileInside(repoDir, name, 1024 * 1024, { allowInternalLinks: true })
+      .then((r) => r.buf.toString("utf8"))
+      .catch(() => "");
     if (text.trim()) parts.push(`### ${name}\n${text}`);
   }
   return parts.join("\n\n").slice(0, 20_000);

@@ -142,6 +142,8 @@ export const COMMON_DENY: readonly string[] = [
   "Read(~/.codex/**)",
   "Read(~/.netrc)",
   "Read(~/.npmrc)",
+  "Read(~/.gnupg/**)",
+  "Read(~/.git-credentials)",
   "Read(~/Library/Keychains/**)",
   "Read(~/Library/Mobile Documents/**)",
   "Read(**/.env)",
@@ -175,18 +177,39 @@ export const COMMON_DENY: readonly string[] = [
   "SendMessage",
 ];
 
-/** サンドボックスの読み取り拒否（7.2・6.5） */
+/**
+ * サンドボックスの読み取り拒否（7.2・6.5・D-118）。Read の拒否と同じ秘密を、Bash（python3・node など）からも読ませない。
+ * - ホームの秘密の置き場所は丸ごと
+ * - `.env` 類・`*.key` はどこにあっても（`//` 始まりは絶対パス。macOS の Seatbelt ではグロブが正規表現になる）
+ * - `*.pem` は CA の束（certifi の cacert.pem・/etc/ssl/cert.pem）を読めないと pip などが壊れるので、
+ *   どこでもではなく本人のリポジトリの置き場所の中だけ（sandboxDenyRead が projectsRoot から足す）
+ */
 export const SANDBOX_DENY_READ: readonly string[] = [
   "~/.ssh",
   "~/.aws",
   "~/.config",
   "~/.claude",
+  "~/.claude.json",
   "~/.codex",
   "~/.netrc",
   "~/.npmrc",
+  "~/.gnupg",
+  "~/.git-credentials",
   "~/Library/Keychains",
   "~/Library/Mobile Documents",
+  "//**/.env",
+  "//**/.env.*",
+  "//**/.dev.vars",
+  "//**/.dev.vars.*",
+  "//**/*.key",
 ];
+
+/** 本人のリポジトリの置き場所（~/projects）の中の *.pem も拒否に足す（D-118） */
+export function sandboxDenyRead(projectsRoot: string | null): string[] {
+  const out = [...SANDBOX_DENY_READ];
+  if (projectsRoot && projectsRoot.startsWith("/")) out.push(`/${projectsRoot.replace(/\/+$/, "")}/**/*.pem`);
+  return out;
+}
 
 /** サンドボックスの書き込みの追加（パッケージのキャッシュ） */
 export const SANDBOX_ALLOW_WRITE: readonly string[] = ["~/.npm", "~/Library/Caches/pip", "~/.cache/uv"];

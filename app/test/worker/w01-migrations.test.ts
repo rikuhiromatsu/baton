@@ -1,4 +1,4 @@
-// W1 マイグレーション（0002 まで）が適用でき、COO と COO スレッドの初期データがある
+// W1 マイグレーション（0003 まで）が適用でき、COO と COO スレッドの初期データがある
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +9,7 @@ describe("W1 マイグレーション", () => {
     for (const t of [
       "users", "sessions", "oauth_flows", "projects", "agents", "runners", "instructions", "status_transitions", "tasks", "decisions", "agent_events", "artifacts",
       "runner_repos", "workspaces", "threads", "thread_messages", "thread_reads", "thread_inbox", "project_proposals", "agent_sessions", "transcript_items",
-      "session_inputs", "push_subscriptions", "bot_tokens", "bot_audit_log",
+      "session_inputs", "push_subscriptions", "bot_tokens", "bot_audit_log", "bot_rate_slots",
     ]) {
       expect(names).toContain(t);
     }

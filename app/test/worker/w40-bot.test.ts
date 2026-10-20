@@ -286,6 +286,50 @@ describe("W44 レート制限・監査・トークン", () => {
   });
 });
 
+describe("W44b 並行した呼び出しでも枠を超えない（D-119）", () => {
+  it("send_to_coo を同時に 6 本: 届くのは 1 本だけ。同じ requestId の同時の送り直しは枠を再消費しない", async () => {
+    const s = await login();
+    await clearWork();
+    const { token, item } = await issue(s);
+    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => tool(token, "baton_send_to_coo", { message: `同時 ${i}`, requestId: `p${i}` })));
+    const ok = results.filter((r) => r.error === undefined && !r.result?.isError);
+    expect(ok).toHaveLength(1);
+    expect(results.filter((r) => r.error?.code === -32029)).toHaveLength(5);
+    const sent = await env.DB.prepare("SELECT count(*) AS n FROM thread_messages WHERE client_id LIKE ?").bind(`bot:${item.id}:%`).first<{ n: number }>();
+    expect(sent!.n).toBe(1);
+    // 届いた requestId の送り直しを同時に 3 本: どれも制限に当たらず、行も増えない
+    const okIndex = results.findIndex((r) => r.error === undefined);
+    const again = await Promise.all(Array.from({ length: 3 }, () => tool(token, "baton_send_to_coo", { message: `同時 ${okIndex}`, requestId: `p${okIndex}` })));
+    for (const r of again) expect(r.error).toBeUndefined();
+    const slots = await env.DB.prepare("SELECT count(*) AS n FROM bot_rate_slots WHERE token_id = ? AND action = 'baton_send_to_coo'").bind(item.id).first<{ n: number }>();
+    expect(slots!.n).toBe(1);
+  });
+
+  it("日次の上限: 残り 2 件のところへ同時に 5 本出すと、通るのは 2 本だけ（予約後に失敗したものも数える）", async () => {
+    const s = await login();
+    const r = await registerRunner();
+    await clearWork();
+    const { token, item } = await issue(s);
+    const a = await membersInstruction(r);
+    await claim(r, ["instruction"]);
+    const sid = await createSession(r, { instructionId: a.id });
+    const d = (await (await runner(r, "/api/runner/approvals", { body: { id: crypto.randomUUID(), instructionId: a.id, sessionId: sid, taskId: null, askedByAgentId: null, toolName: "Bash", toolInput: {}, toolUseId: null, question: "q" } })).json()) as Decision;
+    const now = Date.now();
+    const fill = Array.from({ length: 48 }, (_, i) =>
+      env.DB.prepare("INSERT INTO bot_rate_slots (token_id, action, request_id, created_at) VALUES (?, 'baton_propose_answer', ?, ?)").bind(item.id, `old${i}`, now - 60_000 - i),
+    );
+    await env.DB.batch(fill);
+    const results = await Promise.all(Array.from({ length: 5 }, (_, i) => tool<{ ok: boolean }>(token, "baton_propose_answer", { targetId: d.id, proposal: `案 ${i}` })));
+    expect(results.filter((x) => x.result?.structuredContent?.ok === true)).toHaveLength(2);
+    expect(results.filter((x) => x.error?.code === -32029)).toHaveLength(3);
+    const slots = await env.DB.prepare("SELECT count(*) AS n FROM bot_rate_slots WHERE token_id = ? AND action = 'baton_propose_answer'").bind(item.id).first<{ n: number }>();
+    expect(slots!.n).toBe(50);
+    // 1 日前より古い枠は数えない
+    await env.DB.prepare("UPDATE bot_rate_slots SET created_at = ? WHERE token_id = ? AND request_id LIKE 'old%'").bind(now - 2 * 24 * 60 * 60 * 1000, item.id).run();
+    expect((await tool<{ ok: boolean }>(token, "baton_propose_answer", { targetId: d.id, proposal: "翌日" })).result?.structuredContent?.ok).toBe(true);
+  });
+});
+
 describe("W45 HTTP API と OpenAPI", () => {
   it("HTTP 層は MCP と同じ結果を返す。OpenAPI が取れる", async () => {
     const s = await login();

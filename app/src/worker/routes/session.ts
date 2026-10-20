@@ -29,6 +29,7 @@ sessionInfoRoutes.get("/", requireSession, async (c) => {
       c.env.DB.batch([
         c.env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
         c.env.DB.prepare("DELETE FROM bot_audit_log WHERE created_at < ?").bind(now - LIMITS.botAuditRetentionDays * DAY_MS),
+        c.env.DB.prepare("DELETE FROM bot_rate_slots WHERE created_at < ?").bind(now - 2 * DAY_MS),
       ]).then(() => undefined),
     );
   }

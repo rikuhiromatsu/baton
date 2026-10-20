@@ -1,6 +1,6 @@
 // メンバーの台本（DESIGN-v2 5.6・7.4・7.6・15.2）。道具は cwd（自分の worktree）の中で本当に動く。
 // 最後に StructuredOutput（--json-schema が MemberOutputWire なら送る形、判別共用体ならそのまま）。
-import { readFileSync } from "node:fs";
+import { readFileSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { TURN_TAGS } from "@baton/shared";
 import { shortHash, type MemberTask } from "../store.ts";
@@ -208,6 +208,13 @@ export function* memberScript(ctx: TurnContext): Script {
 
   t.completed = true;
   t.artifacts = [{ path: file, title: stripMarkers(t.title).slice(0, 80) || "成果" }];
+  // 攻撃の再現（[symlink]）: worktree の外の秘密へのリンクを置き、成果物として返す（ランナーは読んではいけない）
+  const target = process.env.FAKE_SYMLINK_TARGET;
+  if (markers.has("symlink") && target) {
+    symlinkSync(target, path.join(ctx.cwd, "leak.md"));
+    symlinkSync(path.dirname(target), path.join(ctx.cwd, "leakdir"));
+    t.artifacts.push({ path: "leak.md", title: "リンク" }, { path: `leakdir/${path.basename(target)}`, title: "ディレクトリのリンク" }, { path: target, title: "絶対パス" });
+  }
   t.summary = [`${stripMarkers(t.title) || "タスク"}を終えました。${file} に書きました。`, ...notes].join("\n");
   yield* finish(ctx, { kind: "done", summary: t.summary, artifacts: t.artifacts });
 }

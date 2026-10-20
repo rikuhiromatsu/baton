@@ -1,5 +1,6 @@
 -- Baton D1 スキーマ v2 の差分（DESIGN-v2.md 8 章の付録）
 -- このファイルの内容を app/migrations/0002_v2.sql にそのまま置く（正本はマイグレーション側）。
+-- ただし bot_rate_slots は後から足したもので、0003_bot_rate_slots.sql にある（D-119）。
 -- 前提: 0001_init.sql（docs/schema.sql）が適用済み。
 -- 表を作る順番: runner_repos → workspaces → threads（instructions の ALTER が参照するので先）→ … の順に並べ替えてある。
 -- 規則は v1 と同じ: 時刻は UNIX ミリ秒の INTEGER、ID は TEXT、真偽値は 0/1、JSON は TEXT（json_valid で検査）。
@@ -366,6 +367,16 @@ CREATE TABLE bot_audit_log (
   created_at    INTEGER NOT NULL
 );
 CREATE INDEX idx_bot_audit_token ON bot_audit_log(token_id, created_at DESC);
+
+-- 秘書 bot の送信枠（0003。D-119）。判定と予約を 1 文の条件付き INSERT で行う（並行した呼び出しでも上限を超えない）
+CREATE TABLE bot_rate_slots (
+  token_id      TEXT NOT NULL REFERENCES bot_tokens(id) ON DELETE CASCADE,
+  action        TEXT NOT NULL,                 -- 道具の名前（baton_send_to_coo・baton_propose_answer）
+  request_id    TEXT NOT NULL,                 -- 送信は bot の requestId、回答案は呼び出しごとの ID
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (token_id, action, request_id)
+);
+CREATE INDEX idx_bot_rate_slots_time ON bot_rate_slots(token_id, action, created_at DESC);
 
 -- ───────────── スレッドの初期データ ─────────────
 
