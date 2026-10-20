@@ -58,6 +58,9 @@ describe("W40 認証", () => {
     expect((await mcp("not-a-bot-token", "ping")).status).toBe(401);
     const ok = await mcp(token, "ping");
     expect(ok.status).toBe(200);
+    // Bearer の無いトークンだけでも通る（xAI の authorization の入れ方に依らない）。他のスキームは通らない
+    expect((await mcp(null, "ping", undefined, { Authorization: token })).status).toBe(200);
+    expect((await mcp(null, "ping", undefined, { Authorization: `Basic ${token}` })).status).toBe(401);
     expect(ok.headers.get("Access-Control-Allow-Origin")).toBeNull();
     const cookieOnly = await call("/mcp", { method: "POST", headers: { Cookie: s.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) });
     expect(cookieOnly.status).toBe(401);
