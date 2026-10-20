@@ -22,6 +22,15 @@ async function wakeRunner(env: Env, threadId: string, inboxId: string): Promise<
 }
 
 /** CEO の発言（POST /api/threads/:id/messages。差し戻しのコメントも）。clientId で冪等 */
+/** レート制限: CEO の発言は 1 分 30 件（v1 6.6 を発言に）。差し戻しは遷移を確定する前にも確かめる */
+export async function assertCeoMessageRate(db: D1Database, now: number): Promise<void> {
+  const recent = await db
+    .prepare("SELECT count(*) AS n FROM thread_messages WHERE author_kind = 'ceo' AND created_at > ?")
+    .bind(now - 60_000)
+    .first<{ n: number }>();
+  if ((recent?.n ?? 0) >= LIMITS.ceoMessagesPerMinute) throw new ApiError("rate_limited", "too many messages", { retryAfterMs: 60_000 });
+}
+
 export async function postCeoMessage(
   env: Env,
   input: { threadId: string; userId: string; clientId: string | null; body: string; contextProjectId?: string; instructionId?: string; sendBack?: boolean },
@@ -43,12 +52,7 @@ export async function postCeoMessage(
     contextProjectName = project.name;
   }
   const now = Date.now();
-  // レート制限: CEO の発言は 1 分 30 件（v1 6.6 を発言に）
-  const recent = await db
-    .prepare("SELECT count(*) AS n FROM thread_messages WHERE author_kind = 'ceo' AND created_at > ?")
-    .bind(now - 60_000)
-    .first<{ n: number }>();
-  if ((recent?.n ?? 0) >= LIMITS.ceoMessagesPerMinute) throw new ApiError("rate_limited", "too many messages", { retryAfterMs: 60_000 });
+  await assertCeoMessageRate(db, now);
 
   const ref: Record<string, unknown> = {};
   if (input.contextProjectId) ref.contextProjectId = input.contextProjectId;

@@ -24,7 +24,7 @@ import { afterMessages, instructionEvents, notifyRunners, publish } from "../hub
 import { newId } from "../lib/crypto.ts";
 import { conflict, invalid } from "../lib/errors.ts";
 import { checked, readJson } from "../lib/validate.ts";
-import { postCeoMessage } from "../services/conversation.ts";
+import { assertCeoMessageRate, postCeoMessage } from "../services/conversation.ts";
 import type { AppEnv } from "../types.ts";
 
 export const instructionRoutes = new Hono<AppEnv>();
@@ -72,6 +72,8 @@ instructionRoutes.post("/:id/transition", async (c) => {
   if (to === null) throw conflict("transition not allowed", { status: inst.status, action: input.action });
   const comment = input.comment?.trim() ?? "";
   if (input.action === "send_back" && !comment) throw invalid("comment is required for send_back");
+  // 差し戻しのコメントは遷移の後に CEO の発言として入る。発言の上限に当たるなら、遷移を確定する前に断る（Codex 指摘）
+  if (input.action === "send_back") await assertCeoMessageRate(db, now);
 
   const transitionId = newId();
   const stmts = [ceoUpdate(db, inst, input.action, to, comment || null, now)];

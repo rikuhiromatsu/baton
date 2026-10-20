@@ -1,8 +1,9 @@
 // POST /api/transitions/:id/undo（v1 設計書 3.5・D-25）
 import { Hono } from "hono";
-import { LIMITS, NO_UNDO_ACTIONS, UndoOutput, type CeoAction, type InstructionStatus, type RunnerServerEvent } from "@baton/shared";
+import { COO_THREAD_ID, LIMITS, NO_UNDO_ACTIONS, UndoOutput, type CeoAction, type InstructionStatus, type RunnerServerEvent } from "@baton/shared";
 import { getSummary, transitionAfterUpdate } from "../db/instructions.ts";
 import type { TransitionRow } from "../db/rows.ts";
+import { inboxInsertStatements } from "../db/threads.ts";
 import { instructionEvents, notifyRunners, publish } from "../hub/broadcast.ts";
 import { newId } from "../lib/crypto.ts";
 import { conflict, notFound } from "../lib/errors.ts";
@@ -41,6 +42,15 @@ transitionRoutes.post("/:id/undo", async (c) => {
     db.prepare("UPDATE status_transitions SET undone = 1 WHERE id = ? AND EXISTS (SELECT 1 FROM status_transitions WHERE id = ?)").bind(t.id, undoId),
   ]);
   if (results[0]?.meta.changes !== 1) throw conflict("status changed");
+  // 取消の取り消しは queued・phase coo に戻る。新しい仕組みでは queued の指示は取られないので、
+  // 再実行と同じく COO のスレッドを起こす受信箱の項目を入れる（Codex 指摘）
+  if (t.action === "cancel") {
+    const inst = await db.prepare("SELECT title, body FROM instructions WHERE id = ?").bind(t.instruction_id).first<{ title: string | null; body: string }>();
+    const label = inst?.title ?? inst?.body.slice(0, 40) ?? "";
+    await db.batch(
+      inboxInsertStatements(db, { threadId: COO_THREAD_ID, kind: "instruction_event", wakes: true, instructionId: t.instruction_id, payload: { type: "retry", text: `CEO が指示「${label}」の取消を取り消した（続きを進める）` } }, now).stmts,
+    );
+  }
 
   await publish(c.env, await instructionEvents(c.env, [t.instruction_id]));
   const runnerEvents: RunnerServerEvent[] = back === "queued" ? [{ t: "work.available" }] : [];

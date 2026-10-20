@@ -84,6 +84,19 @@ describe("W8 CEO の遷移", () => {
     expect(row).toEqual({ feedback: "表を足して", status: "queued" });
   });
 
+  it("send_back は CEO の発言の上限に当たるなら、遷移を確定せずに 429（やり直せる）", async () => {
+    const s = await login();
+    const id = await insertInstruction(s.userId, { status: "review" });
+    const now = Date.now();
+    const fill = Array.from({ length: 30 }, (_, i) =>
+      env.DB.prepare("INSERT INTO thread_messages (id, thread_id, seq, author_kind, kind, body, status, created_at, updated_at) VALUES (?, 'thread-coo', ?, 'ceo', 'chat', 'x', 'complete', ?, ?)").bind(crypto.randomUUID(), 900_000 + i, now, now),
+    );
+    await env.DB.batch(fill);
+    expect((await transition(s, id, "send_back", "review", "表を足して")).status).toBe(429);
+    expect(await statusOf(id)).toBe("review");
+    await env.DB.prepare("DELETE FROM thread_messages WHERE seq >= 900000").run();
+  });
+
   it("approve で completedAt が入る。running の cancel で lease が外れ、open の判断は閉じる", async () => {
     const s = await login();
     const a = await insertInstruction(s.userId, { status: "review" });
@@ -114,6 +127,9 @@ describe("W8 undo", () => {
     const t = await ok(s, id, "cancel", "running");
     const res = await browser(s, `/api/transitions/${t.transitionId}/undo`, { method: "POST" });
     expect(((await res.json()) as { instruction: { status: string } }).instruction.status).toBe("queued");
+    // queued は取られないので、COO のスレッドを起こす受信箱の項目が入る（Codex 指摘）
+    const inbox = await env.DB.prepare("SELECT wakes, status FROM thread_inbox WHERE thread_id = 'thread-coo' AND instruction_id = ? AND kind = 'instruction_event' AND wakes = 1").bind(id).first();
+    expect(inbox).toEqual({ wakes: 1, status: "pending" });
   });
 
   it("archive・retry・restore も戻せる", async () => {
