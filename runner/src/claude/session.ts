@@ -40,6 +40,11 @@ export type SessionOptions = {
   denyWrite?: string[];
   extraDomains?: string[];
   oneTimeAllow?: string[];
+  /**
+   * CEO が時間切れのあとに許可した操作（7.6）。can_use_tool がこれとぴったり同じなら 1 回だけ許可する。
+   * 1 回限りの許可ルール（Bash(<全文>)）は、改行・&&・ヒアドキュメントを含むコマンドに当たらない（本番で確認）
+   */
+  preApproved?: { toolName: string; toolInput: Record<string, unknown> } | null;
   startSeq?: number;
   /** 承認を CEO に聞けるか（メンバーだけ。指示が要る） */
   approvals?: { instructionId: string; count: () => number; bump: () => void } | null;
@@ -61,6 +66,13 @@ export type TurnOutcome = {
   stderr: string;
 };
 
+/** ツールの入力が同じか（キーの順序に依らない） */
+export function sameInput(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const norm = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(norm) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, x]) => [k, norm(x)])) : v;
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
+
 export class AgentSession {
   readonly sink: TranscriptSink;
   private proc: ClaudeProcess | null = null;
@@ -74,6 +86,8 @@ export class AgentSession {
   private interrupted = false;
   /** 承認の待ちを止める（中断・取消・停止。Codex 指摘） */
   private approvalAbort = new AbortController();
+  /** CEO が後から許可した操作（1 回使ったら消す） */
+  private preApproved: SessionOptions["preApproved"] = null;
   args: string[] = [];
   /** 現在のターンが扱っている指示（スレッドのターンの項目に入れる。8.3 の最後） */
   turnInstructionId: string | null;
@@ -85,6 +99,7 @@ export class AgentSession {
     this.ctx = ctx;
     this.opts = opts;
     this.turnInstructionId = opts.instructionId;
+    this.preApproved = opts.preApproved ?? null;
     this.sink = new TranscriptSink(
       { api: ctx.api, log: ctx.log, liveLog: ctx.liveLog, flushMs: ctx.config.limits.transcriptFlushMs, summaryOnly: ctx.config.transcriptSummaryOnly, now: ctx.now },
       opts.sessionId,
@@ -215,6 +230,12 @@ export class AgentSession {
     }
     if (verdict.kind === "deny") {
       this.proc?.respond(requestId, { behavior: "deny", message: verdict.message });
+      return;
+    }
+    const pre = this.preApproved;
+    if (pre && pre.toolName === toolName && sameInput(pre.toolInput, toolInput)) {
+      this.preApproved = null;
+      this.proc?.respond(requestId, { behavior: "allow", updatedInput: toolInput });
       return;
     }
     const ap = this.opts.approvals;

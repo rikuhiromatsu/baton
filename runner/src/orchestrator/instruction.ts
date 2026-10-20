@@ -300,6 +300,7 @@ async function resumeUnit(run: Run, s: AgentSessionSummary): Promise<(() => Prom
   const st = await ctx.state.session(s.id);
   let input: string | null = null;
   let oneTimeAllow: string[] = [];
+  let preApproved: { toolName: string; toolInput: Record<string, unknown> } | null = null;
 
   // 追加の依頼（CEO がメンバーのトランスクリプトから送る。5.6）
   const pending = await ctx.api.pendingInputs(s.id).catch(() => []);
@@ -325,6 +326,7 @@ async function resumeUnit(run: Run, s: AgentSessionSummary): Promise<(() => Prom
       } else {
         const rule = st.pendingTool ? oneTimeRule(st.pendingTool.toolName, st.pendingTool.toolInput) : null;
         if (rule) oneTimeAllow = [rule];
+        preApproved = st.pendingTool ?? null;
         input = buildTurnInput([{ tag: TURN_TAGS.ceoAnswer, text: st.pendingTool ? `CEO が許可した。続けて${d.answer ? `（${d.answer}）` : ""}` : `再開して${d.answer ? `: ${d.answer}` : ""}` }]);
       }
       await ctx.state.patchSession(s.id, { cwd: ws.worktreePath, pendingDecisionId: null, pendingTool: null });
@@ -348,7 +350,7 @@ async function resumeUnit(run: Run, s: AgentSessionSummary): Promise<(() => Prom
     if (!followUpOnly) run.worked = true;
     await restoreWorktree(ctx, ws, run.instruction.id);
     if (task && task.status !== "running" && !followUpOnly) run.tasks.set(task.id, await ctx.api.patchTask(task.id, { status: "running" }));
-    return driveMember(run, { task: task ?? null, ws, agent, sessionId: s.id, resume: true, input: finalInput, createSession: false, oneTimeAllow, followUpOnly, startSeq: s.lastSeq });
+    return driveMember(run, { task: task ?? null, ws, agent, sessionId: s.id, resume: true, input: finalInput, createSession: false, oneTimeAllow, preApproved, followUpOnly, startSeq: s.lastSeq });
   };
 }
 
@@ -365,6 +367,7 @@ async function driveMember(
     input: string;
     createSession: boolean;
     oneTimeAllow?: string[];
+    preApproved?: { toolName: string; toolInput: Record<string, unknown> } | null;
     followUpOnly?: boolean;
     startSeq?: number;
   },
@@ -410,6 +413,7 @@ async function driveMember(
       taskId: task?.id ?? null,
       agentId: agent?.id ?? null,
       oneTimeAllow: input.oneTimeAllow ?? [],
+      preApproved: input.preApproved ?? null,
       startSeq: input.startSeq ?? 0,
       approvals: {
         instructionId: instruction.id,

@@ -31,6 +31,8 @@ export function memberValue(schema: Record<string, unknown> | null, out: Output)
 
 export const MEMBER_QUESTION = "形式は箇条書きと表のどちらにしますか？";
 export const APPROVAL_COMMAND = "echo ok > approved.txt";
+/** 改行・&&・ヒアドキュメントを含む（1 回限りの許可ルール Bash(<全文>) が当たらない。本番の台本の書き出し） */
+export const APPROVAL_COMMAND_MULTI = "mkdir -p out && cd out\ncat > approved.txt <<'EOF'\nok\nEOF";
 
 /** [文脈] の「触ってよい範囲: a, b」 */
 function pathsFrom(ctx: TurnContext): string[] {
@@ -186,8 +188,11 @@ export function* memberScript(ctx: TurnContext): Script {
 
   const notes: string[] = [];
   // 承認が要る Bash（[approve]。許可リストの外なのでランナーが CEO に聞く。7.6）
-  if (markers.has("approve")) {
-    const r = yield { kind: "tool", name: "Bash", input: { command: APPROVAL_COMMAND, description: "承認の確認用のファイルを書く" } };
+  if (markers.has("approve") || markers.has("approve-multi")) {
+    const command = markers.has("approve-multi") ? APPROVAL_COMMAND_MULTI : APPROVAL_COMMAND;
+    const r = yield { kind: "tool", name: "Bash", input: { command, description: "承認の確認用のファイルを書く" } };
+    // 本物は時間切れの中断でターンを終える（[approve-multi] だけ本物に合わせる。再開で同じコマンドを打ち直す）
+    if (markers.has("approve-multi") && !r?.ok && /時間内に無かった/.test(r?.content ?? "")) return;
     notes.push(r?.ok ? "approved.txt を書きました" : "承認されなかったので approved.txt は書きませんでした");
   }
   // 自分の worktree の外への書き込み（[deny]。ランナーの方針で拒否される）

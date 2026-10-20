@@ -4,7 +4,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { COO_THREAD_ID } from "@baton/shared";
+import { APPROVAL_COMMAND_MULTI } from "../../tools/fake-claude/src/scripts/member.ts";
 import { decidePermission, oneTimeRule } from "../src/claude/approval.ts";
+import { sameInput } from "../src/claude/session.ts";
 import { makeEnv, waitFor, type Env } from "./helpers.ts";
 
 let env: Env;
@@ -114,6 +116,26 @@ describe("R2' 承認", () => {
     expect(env.api.transcript.some((t) => t.sessionId === s.id && t.kind === "user" && String((t.body as { text?: string }).text).includes("[CEO の回答] CEO が許可した"))).toBe(true);
     expect([...env.api.tasks.values()][0]!.status).toBe("done");
   }, 30_000);
+
+  it("時間切れのあと許可した複合コマンド（改行・&&・ヒアドキュメント）は、--resume で同じものが来たら聞き直さずに通す", async () => {
+    env = await makeEnv({ env: { BATON_APPROVAL_WAIT_MS: "300" } });
+    await toMemberPhase(env, "承認の確認 [approve-multi]");
+    await env.step();
+    const interrupted = [...env.api.decisions.values()].find((d) => d.kind === "interrupted")!;
+    expect([...env.api.decisions.values()].find((d) => d.kind === "approval")!.toolInput).toMatchObject({ command: APPROVAL_COMMAND_MULTI });
+    env.api.answerDecision(interrupted.id, "allow");
+    await env.step();
+    // 1 回限りのルール Bash(<全文>) は複合コマンドに当たらない。ランナーが CEO の許可と照らして通す（承認はもう出ない）
+    expect([...env.api.decisions.values()].filter((d) => d.kind === "approval")).toHaveLength(1);
+    expect([...env.api.tasks.values()][0]!.status).toBe("done");
+    const integration = [...env.api.workspaces.values()].find((w) => w.purpose === "integration")!;
+    expect(existsSync(path.join(integration.worktreePath, "out/approved.txt"))).toBe(true);
+  }, 30_000);
+
+  it("CEO が許可した操作の照合はキーの順序に依らず、違う入力は通さない", () => {
+    expect(sameInput({ command: "a", description: "x" }, { description: "x", command: "a" })).toBe(true);
+    expect(sameInput({ command: "a" }, { command: "a " })).toBe(false);
+  });
 
   it("worktree の外への書き込み（[deny]）は聞かずに拒否される", async () => {
     env = await makeEnv();
